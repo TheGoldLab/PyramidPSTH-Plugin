@@ -1,0 +1,14 @@
+# Build artifacts
+build/
+Build/
+dist/
+*.zip
+*.dmg
+*.exe
+*.dll
+*.bundle
+
+# OS/editor
+.DS_Store
+.vscode/
+.idea/

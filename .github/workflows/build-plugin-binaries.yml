@@ -1,0 +1,103 @@
+name: Build PyramidPSTH Plugin
+
+on:
+  workflow_dispatch:
+    inputs:
+      open_ephys_ref:
+        description: "OpenEphysGUI ref (branch/tag/SHA)"
+        required: false
+        default: "main"
+  push:
+    paths:
+      - 'Plugins/PyramidPSTH/**'
+      - '.github/workflows/build-plugin-binaries.yml'
+  pull_request:
+    paths:
+      - 'Plugins/PyramidPSTH/**'
+      - '.github/workflows/build-plugin-binaries.yml'
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            artifact_name: PyramidPSTH-macos
+          - os: windows-latest
+            artifact_name: PyramidPSTH-windows
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout plugin repo
+        uses: actions/checkout@v4
+
+      - name: Checkout OpenEphysGUI
+        uses: actions/checkout@v4
+        with:
+          repository: open-ephys/plugin-GUI
+          ref: ${{ github.event.inputs.open_ephys_ref || 'main' }}
+          path: OpenEphysGUI
+
+      - name: Inject PyramidPSTH plugin source
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf OpenEphysGUI/Plugins/PyramidPSTH
+          mkdir -p OpenEphysGUI/Plugins
+          cp -R Plugins/PyramidPSTH OpenEphysGUI/Plugins/
+
+          if ! grep -q "add_subdirectory(PyramidPSTH)" OpenEphysGUI/Plugins/CMakeLists.txt; then
+            echo "add_subdirectory(PyramidPSTH)" >> OpenEphysGUI/Plugins/CMakeLists.txt
+          fi
+
+      - name: Configure (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          cmake -S OpenEphysGUI -B OpenEphysGUI/Build -G "Xcode"
+
+      - name: Configure (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          cmake -S OpenEphysGUI -B OpenEphysGUI/Build -G "Visual Studio 17 2022" -A x64
+
+      - name: Build plugin target
+        shell: bash
+        run: |
+          cmake --build OpenEphysGUI/Build --config Release --target PyramidPSTH
+
+      - name: Package macOS artifact
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          bundle_path=$(find OpenEphysGUI/Build -type d -name "PyramidPSTH.bundle" | head -n 1)
+          if [ -z "${bundle_path}" ]; then
+            echo "PyramidPSTH.bundle not found"
+            exit 1
+          fi
+          cp -R "${bundle_path}" dist/
+          /usr/bin/ditto -c -k --sequesterRsrc --keepParent "dist/PyramidPSTH.bundle" "dist/PyramidPSTH-macos.zip"
+
+      - name: Package Windows artifact
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          $dll = Get-ChildItem -Path OpenEphysGUI/Build -Recurse -Filter PyramidPSTH.dll | Select-Object -First 1
+          if (-not $dll) {
+            throw 'PyramidPSTH.dll not found'
+          }
+          Copy-Item $dll.FullName dist\PyramidPSTH.dll -Force
+          Compress-Archive -Path dist\PyramidPSTH.dll -DestinationPath dist\PyramidPSTH-windows.zip -Force
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: dist/*.zip
+          if-no-files-found: error
