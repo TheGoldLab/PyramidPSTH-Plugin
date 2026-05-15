@@ -76,6 +76,14 @@ public:
                                     int preTrialBufferMs,
                                     bool& matched,
                                     String& errorMessage) const;
+    bool evaluateConditionInWindow (const String& conditionName,
+                                    int64 startSequence,
+                                    int64 endSequence,
+                                    int64 startSampleNumber,
+                                    int64 endSampleNumber,
+                                    int64 preTrialBufferSamples,
+                                    bool& matched,
+                                    String& errorMessage) const;
     bool findNearestMatchingEventSystemTime (const String& conditionName,
                                              int64 referenceSystemTimeMs,
                                              int maxAbsLagMs,
@@ -87,6 +95,14 @@ public:
                                            int64 startSystemTimeMs,
                                            int64 endSystemTimeMs,
                                            int preTrialBufferMs,
+                                           ParsedEvent& matchedEvent) const;
+    bool findNearestMatchingEventInWindow (const String& conditionName,
+                                           int64 referenceSampleNumber,
+                                           int64 startSequence,
+                                           int64 endSequence,
+                                           int64 startSampleNumber,
+                                           int64 endSampleNumber,
+                                           int64 preTrialBufferSamples,
                                            ParsedEvent& matchedEvent) const;
 
     Array<String> getConditionNames() const;
@@ -102,6 +118,7 @@ private:
     bool parseEvent (const String& text, int64 sampleNumber, int64 systemTimeMs, ParsedEvent& parsed) const;
     bool parseEventAsJson (const String& text, ParsedEvent& parsed) const;
     void parseEventAsKeyValue (const String& text, ParsedEvent& parsed) const;
+    bool tryExtractSampleNumberFromEventFields (ParsedEvent& parsed) const;
 
     bool evaluateRule (const Rule& rule, const EvalContext& context, bool& matched) const;
     bool evaluateAgainstEvent (const Rule& rule, const ParsedEvent& event, bool& matched) const;
@@ -111,12 +128,24 @@ private:
                                            int64 startSystemTimeMs,
                                            int64 endSystemTimeMs,
                                            int preTrialBufferMs) const;
+    bool conditionMatchesAnyEventInWindow (const String& conditionName,
+                                           int64 startSequence,
+                                           int64 endSequence,
+                                           int64 startSampleNumber,
+                                           int64 endSampleNumber,
+                                           int64 preTrialBufferSamples) const;
     bool eventInWindow (const ParsedEvent& event,
                         int64 startSequence,
                         int64 endSequence,
                         int64 startSystemTimeMs,
                         int64 endSystemTimeMs,
                         int preTrialBufferMs) const;
+    bool eventInWindow (const ParsedEvent& event,
+                        int64 startSequence,
+                        int64 endSequence,
+                        int64 startSampleNumber,
+                        int64 endSampleNumber,
+                        int64 preTrialBufferSamples) const;
 
     bool tryGetFieldValueCaseInsensitive (const ParsedEvent& event,
                                           const String& key,

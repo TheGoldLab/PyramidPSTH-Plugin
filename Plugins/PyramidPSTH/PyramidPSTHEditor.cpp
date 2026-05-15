@@ -737,7 +737,7 @@ PyramidPSTHEditor::PyramidPSTHEditor (GenericProcessor* parentNode)
     addAndMakeVisible (configureButton.get());
 
     statusBox = std::make_unique<TextEditor> ("status_box");
-    statusBox->setBounds (rightX, 36, rightWidth, 170);
+    statusBox->setBounds (rightX, 29, rightWidth, 99);
     statusBox->setReadOnly (true);
     statusBox->setMultiLine (true);
     statusBox->setReturnKeyStartsNewLine (true);
@@ -840,10 +840,11 @@ PyramidPSTH* PyramidPSTHEditor::getPyramidProcessor() const
 String PyramidPSTHEditor::formatStatusForDisplay (const String& rawStatus) const
 {
     StringArray chunks;
-    chunks.addTokens (rawStatus, "|", "");
+    chunks.addTokens (rawStatus, " ", "");
     chunks.trim();
+    chunks.removeEmptyStrings();
 
-    if (chunks.size() <= 1)
+    if (chunks.isEmpty())
         return rawStatus;
 
     String formatted;
@@ -1024,7 +1025,33 @@ void PyramidPSTHEditor::openAlignmentDialog()
     for (const auto& condition : availableRuleConditions)
         modeChoices.add (condition);
 
+    StringArray syncChoices;
+    syncChoices.add ("No cross-stream timestamp mapping");
+    syncChoices.add ("Assume streams are synchronized");
+
     window.addComboBox ("alignment_mode", modeChoices, "Alignment Mode");
+    window.addComboBox ("sync_assumption", syncChoices, "Event-code stream synchronization");
+
+    if (auto* modeCombo = window.getComboBoxComponent ("alignment_mode"))
+    {
+        int selectedIndex = 0;
+        if (processor->getAlignmentMode() == PyramidPSTH::AlignmentMode::eventCode)
+        {
+            const String alignCondition = processor->getAlignmentEventConditionName();
+            const int eventIndex = modeChoices.indexOf (alignCondition);
+            if (eventIndex >= 0)
+                selectedIndex = eventIndex;
+        }
+
+        modeCombo->setSelectedItemIndex (selectedIndex, dontSendNotification);
+    }
+
+    if (auto* syncCombo = window.getComboBoxComponent ("sync_assumption"))
+    {
+        const int syncIndex = processor->getAssumeSynchronizedStreamsForEventAlignment() ? 1 : 0;
+        syncCombo->setSelectedItemIndex (syncIndex, dontSendNotification);
+    }
+
     window.addButton ("Apply", 1);
     window.addButton ("Cancel", 2);
 
@@ -1032,9 +1059,16 @@ void PyramidPSTHEditor::openAlignmentDialog()
 
     if (result == 1)
     {
+        if (auto* syncCombo = window.getComboBoxComponent ("sync_assumption"))
+            processor->setAssumeSynchronizedStreamsForEventAlignment (syncCombo->getSelectedItemIndex() == 1);
+
         if (auto* comboBox = window.getComboBoxComponent ("alignment_mode"))
         {
-            const String selection = modeChoices[comboBox->getSelectedItemIndex()];
+            const int selectedIndex = comboBox->getSelectedItemIndex();
+            if (! isPositiveAndBelow (selectedIndex, modeChoices.size()))
+                return;
+
+            const String selection = modeChoices[selectedIndex];
             if (selection == "TTL Trigger Line")
             {
                 processor->setAlignmentMode (PyramidPSTH::AlignmentMode::ttl);

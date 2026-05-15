@@ -60,6 +60,8 @@ public:
     AlignmentMode getAlignmentMode() const;
     void setAlignmentEventConditionName (const String& conditionName);
     String getAlignmentEventConditionName() const;
+    void setAssumeSynchronizedStreamsForEventAlignment (bool shouldAssumeSynced);
+    bool getAssumeSynchronizedStreamsForEventAlignment() const;
 
     void setVisualizerLayoutOptions (int rowHeightPixels, int numColumns, int plotTypeId);
     void getVisualizerLayoutOptions (int& rowHeightPixels, int& numColumns, int& plotTypeId) const;
@@ -133,10 +135,12 @@ private:
     bool trialActive = false;
     int64 activeTrialStartSequence = 0;
     int64 activeTrialStartSystemTimeMs = 0;
+    int64 activeTrialStartSampleNumber = -1;
     int preTrialBufferMs = 80;
     int lagSearchWindowMs = 500;
     AlignmentMode alignmentMode = AlignmentMode::ttl;
     String alignmentEventConditionName;
+    bool assumeSynchronizedStreamsForEventAlignment = false;
 
     int64 lagSampleCount = 0;
     double lagMeanMs = 0.0;
@@ -161,6 +165,7 @@ private:
     uint16 activeTrialStreamId = 0;
     int64 activeAlignSample = -1;
     double activeAlignTimestampSeconds = -1.0;
+    int64 activeAlignSystemTimeMs = -1;
     float activeTrialSampleRate = 0.0f;
     Array<TrialSpike> activeTrialSpikes;
 
@@ -179,6 +184,21 @@ private:
     std::atomic<int64> trialStartsSeen { 0 };
     std::atomic<int64> trialEndsSeen { 0 };
     std::atomic<int64> ttlFilteredOut { 0 };
+    std::atomic<int64> lastTrialStartSystemTimeMs { -1 };
+    std::atomic<int64> lastTrialStartWithPrebufferSystemTimeMs { -1 };
+    std::atomic<int64> lastTrialEndSystemTimeMs { -1 };
+    std::atomic<int64> lastTrialAlignSystemTimeMs { -1 };
+    std::atomic<int64> lastConditionEventSystemTimeMs { -1 };
+    std::atomic<double> lastTrialStartAcqTimeSeconds { -1.0 };
+    std::atomic<double> lastTrialEndAcqTimeSeconds { -1.0 };
+    std::atomic<double> lastTrialAlignAcqTimeSeconds { -1.0 };
+    std::atomic<double> lastConditionEventAcqTimeSeconds { -1.0 };
+    std::atomic<int64> lastTextEventSampleNumber { -1 };
+    std::atomic<int64> lastTrialStartSampleNumberDebug { -1 };
+    std::atomic<int64> lastTrialEndSampleNumberDebug { -1 };
+    std::atomic<int64> lastAlignEventSampleNumber { -1 };
+    std::atomic<int64> lastConditionEventSampleNumber { -1 };
+    std::atomic<int64> alignSampleDomainRejects { 0 };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PyramidPSTH);
 };

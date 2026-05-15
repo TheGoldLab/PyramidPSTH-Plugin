@@ -24,20 +24,6 @@ PyramidRuleEngine::CodeType codeTypeFromString (const String& text)
     return PyramidRuleEngine::CodeType::unknown;
 }
 
-String opToString (PyramidRuleEngine::Operator op)
-{
-    switch (op)
-    {
-        case PyramidRuleEngine::Operator::exists: return "exists";
-        case PyramidRuleEngine::Operator::equals: return "equals";
-        case PyramidRuleEngine::Operator::notEquals: return "not_equals";
-        case PyramidRuleEngine::Operator::contains: return "contains";
-        case PyramidRuleEngine::Operator::greaterThan: return "greater_than";
-        case PyramidRuleEngine::Operator::lessThan: return "less_than";
-        default: return "exists";
-    }
-}
-
 PyramidRuleEngine::Operator opFromString (const String& text)
 {
     if (text.equalsIgnoreCase ("equals"))
@@ -52,6 +38,21 @@ PyramidRuleEngine::Operator opFromString (const String& text)
         return PyramidRuleEngine::Operator::lessThan;
     return PyramidRuleEngine::Operator::exists;
 }
+
+String opToString (PyramidRuleEngine::Operator op)
+{
+    switch (op)
+    {
+        case PyramidRuleEngine::Operator::exists: return "exists";
+        case PyramidRuleEngine::Operator::equals: return "equals";
+        case PyramidRuleEngine::Operator::notEquals: return "not_equals";
+        case PyramidRuleEngine::Operator::contains: return "contains";
+        case PyramidRuleEngine::Operator::greaterThan: return "greater_than";
+        case PyramidRuleEngine::Operator::lessThan: return "less_than";
+        default: return "exists";
+    }
+}
+
 }
 
 PyramidPSTH::PyramidPSTH()
@@ -139,6 +140,7 @@ void PyramidPSTH::handleBroadcastMessage (const String& message, const int64 sam
     try
     {
         const int64 systemTimeMs = Time::currentTimeMillis();
+        lastTextEventSampleNumber = sampleNumber;
         ruleEngine.ingestTextEvent (message, sampleNumber, systemTimeMs);
     }
     catch (...)
@@ -177,6 +179,7 @@ void PyramidPSTH::handleTTLEvent (TTLEventPtr event)
         {
             activeAlignSample = event->getSampleNumber();
             activeAlignTimestampSeconds = event->getTimestampInSeconds();
+            activeAlignSystemTimeMs = Time::currentTimeMillis();
         }
     }
 
@@ -189,11 +192,26 @@ void PyramidPSTH::handleTTLEvent (TTLEventPtr event)
         activeTrialStreamId = event->getStreamId();
         activeTrialStartSequence = ruleEngine.getLatestParsedSequence() + 1;
         activeTrialStartSystemTimeMs = Time::currentTimeMillis();
+        lastTrialStartSystemTimeMs = activeTrialStartSystemTimeMs;
+        activeTrialStartSampleNumber = event->getSampleNumber();
+        lastTrialStartSampleNumberDebug = activeTrialStartSampleNumber;
         activeAlignSample = -1;
         activeAlignTimestampSeconds = -1.0;
+        activeAlignSystemTimeMs = -1;
         activeTrialSpikes.clearQuick();
+        lastConditionEventSystemTimeMs = -1;
+        lastConditionEventAcqTimeSeconds = -1.0;
 
         activeTrialSampleRate = stream->getSampleRate();
+
+        auto sampleToSeconds = [&] (int64 sampleNumber)
+        {
+            return activeTrialSampleRate > 1.0f && sampleNumber >= 0
+                     ? double (sampleNumber) / double (activeTrialSampleRate)
+                     : -1.0;
+        };
+
+        lastTrialStartAcqTimeSeconds = sampleToSeconds (activeTrialStartSampleNumber);
 
         const auto names = getConditionNamesForEvaluation();
         if (names.size() > 0)
@@ -230,6 +248,27 @@ void PyramidPSTH::handleTTLEvent (TTLEventPtr event)
     const int configuredPreTrialBufferMs = int (getParameter ("pre_trial_buffer_ms")->getValue());
     const auto conditionNames = getConditionNamesForEvaluation();
     const int64 windowEndSystemTimeMs = Time::currentTimeMillis();
+    const int64 trialEndSampleNumber = event->getSampleNumber();
+    lastTrialEndSampleNumberDebug = trialEndSampleNumber;
+    lastTrialStartWithPrebufferSystemTimeMs = activeTrialStartSystemTimeMs - jmax (0, configuredPreTrialBufferMs);
+    lastTrialEndSystemTimeMs = windowEndSystemTimeMs;
+
+    auto sampleToSeconds = [&] (int64 sampleNumber)
+    {
+        return activeTrialSampleRate > 1.0f && sampleNumber >= 0
+                 ? double (sampleNumber) / double (activeTrialSampleRate)
+                 : -1.0;
+    };
+
+    lastTrialEndAcqTimeSeconds = sampleToSeconds (trialEndSampleNumber);
+
+    const int64 preTrialBufferSamples = activeTrialSampleRate > 1.0f
+                                            ? int64 (std::llround (double (configuredPreTrialBufferMs) * double (activeTrialSampleRate) / 1000.0))
+                                            : 0;
+    const bool useAcqClockTiming = assumeSynchronizedStreamsForEventAlignment
+                                   && activeTrialStartSampleNumber >= 0
+                                   && trialEndSampleNumber >= 0
+                                   && activeTrialSampleRate > 1.0f;
 
     if (trialFilterEnabled && trialFilterConditionName.isNotEmpty())
     {
@@ -239,14 +278,28 @@ void PyramidPSTH::handleTTLEvent (TTLEventPtr event)
 
         try
         {
-            ok = ruleEngine.evaluateConditionInWindow (trialFilterConditionName,
-                                                       activeTrialStartSequence,
-                                                       ruleEngine.getLatestParsedSequence(),
-                                                       activeTrialStartSystemTimeMs,
-                                                       windowEndSystemTimeMs,
-                                                       configuredPreTrialBufferMs,
-                                                       filterMatched,
-                                                       errorMessage);
+            if (useAcqClockTiming)
+            {
+                ok = ruleEngine.evaluateConditionInWindow (trialFilterConditionName,
+                                                           activeTrialStartSequence,
+                                                           ruleEngine.getLatestParsedSequence(),
+                                                           activeTrialStartSampleNumber,
+                                                           trialEndSampleNumber,
+                                                           preTrialBufferSamples,
+                                                           filterMatched,
+                                                           errorMessage);
+            }
+            else
+            {
+                ok = ruleEngine.evaluateConditionInWindow (trialFilterConditionName,
+                                                           activeTrialStartSequence,
+                                                           ruleEngine.getLatestParsedSequence(),
+                                                           activeTrialStartSystemTimeMs,
+                                                           windowEndSystemTimeMs,
+                                                           configuredPreTrialBufferMs,
+                                                           filterMatched,
+                                                           errorMessage);
+            }
         }
         catch (...)
         {
@@ -258,6 +311,7 @@ void PyramidPSTH::handleTTLEvent (TTLEventPtr event)
             activeTrialSpikes.clearQuick();
             activeAlignSample = -1;
             activeAlignTimestampSeconds = -1.0;
+            activeTrialStartSampleNumber = -1;
             activeTrialSampleRate = 0.0f;
             return;
         }
@@ -265,10 +319,12 @@ void PyramidPSTH::handleTTLEvent (TTLEventPtr event)
 
     auto hasViableAlignmentForTrial = [&] (const String& candidateConditionName,
                                            int64& resolvedAlignSample,
-                                           double& resolvedAlignTimestampSeconds)
+                                           double& resolvedAlignTimestampSeconds,
+                                           int64& resolvedAlignSystemTimeMs)
     {
         resolvedAlignSample = -1;
         resolvedAlignTimestampSeconds = -1.0;
+        resolvedAlignSystemTimeMs = -1;
 
         if (alignmentMode == AlignmentMode::eventCode)
         {
@@ -277,27 +333,54 @@ void PyramidPSTH::handleTTLEvent (TTLEventPtr event)
                 return false;
 
             PyramidRuleEngine::ParsedEvent matchedEvent;
-            const bool foundAlignEvent = ruleEngine.findNearestMatchingEventInWindow (alignCondition,
-                                                                                       activeTrialStartSystemTimeMs,
-                                                                                       activeTrialStartSequence,
-                                                                                       ruleEngine.getLatestParsedSequence(),
-                                                                                       activeTrialStartSystemTimeMs,
-                                                                                       windowEndSystemTimeMs,
-                                                                                       configuredPreTrialBufferMs,
-                                                                                       matchedEvent);
+            const bool foundAlignEvent = useAcqClockTiming
+                                            ? ruleEngine.findNearestMatchingEventInWindow (alignCondition,
+                                                                                           activeTrialStartSampleNumber,
+                                                                                           activeTrialStartSequence,
+                                                                                           ruleEngine.getLatestParsedSequence(),
+                                                                                           activeTrialStartSampleNumber,
+                                                                                           trialEndSampleNumber,
+                                                                                           preTrialBufferSamples,
+                                                                                           matchedEvent)
+                                            : ruleEngine.findNearestMatchingEventInWindow (alignCondition,
+                                                                                           activeTrialStartSystemTimeMs,
+                                                                                           activeTrialStartSequence,
+                                                                                           ruleEngine.getLatestParsedSequence(),
+                                                                                           activeTrialStartSystemTimeMs,
+                                                                                           windowEndSystemTimeMs,
+                                                                                           configuredPreTrialBufferMs,
+                                                                                           matchedEvent);
             if (! foundAlignEvent)
                 return false;
+            resolvedAlignSystemTimeMs = matchedEvent.systemTimeMs;
+            lastAlignEventSampleNumber = matchedEvent.sampleNumber;
 
-            if (matchedEvent.sampleNumber < 0)
+            const int64 minTrialSample = activeTrialStartSampleNumber - jmax<int64> (0, preTrialBufferSamples);
+            const bool canUseTrialSampleDomain = useAcqClockTiming
+                                                && matchedEvent.sampleNumber >= minTrialSample
+                                                && matchedEvent.sampleNumber <= trialEndSampleNumber;
+
+            if (canUseTrialSampleDomain)
+            {
+                resolvedAlignSample = matchedEvent.sampleNumber;
+                resolvedAlignTimestampSeconds = sampleToSeconds (matchedEvent.sampleNumber);
+            }
+            else
+            {
+                alignSampleDomainRejects++;
                 return false;
+            }
 
-            resolvedAlignSample = matchedEvent.sampleNumber;
             ignoreUnused (candidateConditionName);
-            return true;
+            return resolvedAlignSample >= 0 || resolvedAlignTimestampSeconds >= 0.0;
         }
 
         resolvedAlignSample = activeAlignSample;
-        resolvedAlignTimestampSeconds = activeAlignTimestampSeconds;
+        if (assumeSynchronizedStreamsForEventAlignment && activeTrialSampleRate > 1.0f && activeAlignSample >= 0)
+            resolvedAlignTimestampSeconds = double (activeAlignSample) / double (activeTrialSampleRate);
+        else
+            resolvedAlignTimestampSeconds = activeAlignTimestampSeconds;
+        resolvedAlignSystemTimeMs = activeAlignSystemTimeMs;
         return resolvedAlignSample >= 0 || resolvedAlignTimestampSeconds >= 0.0;
     };
 
@@ -306,11 +389,17 @@ void PyramidPSTH::handleTTLEvent (TTLEventPtr event)
         static const String allTrialsConditionName = "All Trials";
         int64 resolvedAlignSample = -1;
         double resolvedAlignTimestampSeconds = -1.0;
+        int64 resolvedAlignSystemTimeMs = -1;
 
-        if (hasViableAlignmentForTrial (allTrialsConditionName, resolvedAlignSample, resolvedAlignTimestampSeconds))
+        if (hasViableAlignmentForTrial (allTrialsConditionName,
+                                       resolvedAlignSample,
+                                       resolvedAlignTimestampSeconds,
+                                       resolvedAlignSystemTimeMs))
         {
             activeAlignSample = resolvedAlignSample;
             activeAlignTimestampSeconds = resolvedAlignTimestampSeconds;
+            lastTrialAlignSystemTimeMs = resolvedAlignSystemTimeMs;
+            lastTrialAlignAcqTimeSeconds = resolvedAlignTimestampSeconds;
             trialsEmitted++;
             conditionMatchedTrialCounts[allTrialsConditionName] += 1;
             accumulateMatchedTrial (allTrialsConditionName);
@@ -325,14 +414,28 @@ void PyramidPSTH::handleTTLEvent (TTLEventPtr event)
 
         try
         {
-            ok = ruleEngine.evaluateConditionInWindow (conditionName,
-                                                       activeTrialStartSequence,
-                                                       ruleEngine.getLatestParsedSequence(),
-                                                       activeTrialStartSystemTimeMs,
-                                                       windowEndSystemTimeMs,
-                                                       configuredPreTrialBufferMs,
-                                                       matched,
-                                                       errorMessage);
+            if (useAcqClockTiming)
+            {
+                ok = ruleEngine.evaluateConditionInWindow (conditionName,
+                                                           activeTrialStartSequence,
+                                                           ruleEngine.getLatestParsedSequence(),
+                                                           activeTrialStartSampleNumber,
+                                                           trialEndSampleNumber,
+                                                           preTrialBufferSamples,
+                                                           matched,
+                                                           errorMessage);
+            }
+            else
+            {
+                ok = ruleEngine.evaluateConditionInWindow (conditionName,
+                                                           activeTrialStartSequence,
+                                                           ruleEngine.getLatestParsedSequence(),
+                                                           activeTrialStartSystemTimeMs,
+                                                           windowEndSystemTimeMs,
+                                                           configuredPreTrialBufferMs,
+                                                           matched,
+                                                           errorMessage);
+            }
         }
         catch (...)
         {
@@ -345,12 +448,52 @@ void PyramidPSTH::handleTTLEvent (TTLEventPtr event)
 
         int64 resolvedAlignSample = -1;
         double resolvedAlignTimestampSeconds = -1.0;
+        int64 resolvedAlignSystemTimeMs = -1;
 
-        if (! hasViableAlignmentForTrial (conditionName, resolvedAlignSample, resolvedAlignTimestampSeconds))
+        if (! hasViableAlignmentForTrial (conditionName,
+                                          resolvedAlignSample,
+                                          resolvedAlignTimestampSeconds,
+                                          resolvedAlignSystemTimeMs))
             continue;
+
+        PyramidRuleEngine::ParsedEvent matchedConditionEvent;
+        if (useAcqClockTiming
+                ? ruleEngine.findNearestMatchingEventInWindow (conditionName,
+                                                               activeTrialStartSampleNumber,
+                                                               activeTrialStartSequence,
+                                                               ruleEngine.getLatestParsedSequence(),
+                                                               activeTrialStartSampleNumber,
+                                                               trialEndSampleNumber,
+                                                               preTrialBufferSamples,
+                                                               matchedConditionEvent)
+                : ruleEngine.findNearestMatchingEventInWindow (conditionName,
+                                                               activeTrialStartSystemTimeMs,
+                                                               activeTrialStartSequence,
+                                                               ruleEngine.getLatestParsedSequence(),
+                                                               activeTrialStartSystemTimeMs,
+                                                               windowEndSystemTimeMs,
+                                                               configuredPreTrialBufferMs,
+                                                               matchedConditionEvent))
+        {
+            lastConditionEventSystemTimeMs = matchedConditionEvent.systemTimeMs;
+            lastConditionEventSampleNumber = matchedConditionEvent.sampleNumber;
+            if (useAcqClockTiming && activeTrialSampleRate > 1.0f)
+            {
+                const int64 minTrialSample = activeTrialStartSampleNumber - jmax<int64> (0, preTrialBufferSamples);
+                const bool conditionSampleLooksValid = matchedConditionEvent.sampleNumber >= minTrialSample
+                                                       && matchedConditionEvent.sampleNumber <= trialEndSampleNumber;
+
+                if (conditionSampleLooksValid)
+                    lastConditionEventAcqTimeSeconds = double (matchedConditionEvent.sampleNumber) / double (activeTrialSampleRate);
+                else
+                    lastConditionEventAcqTimeSeconds = -1.0;
+            }
+        }
 
         activeAlignSample = resolvedAlignSample;
         activeAlignTimestampSeconds = resolvedAlignTimestampSeconds;
+        lastTrialAlignSystemTimeMs = resolvedAlignSystemTimeMs;
+        lastTrialAlignAcqTimeSeconds = resolvedAlignTimestampSeconds;
 
         trialsEmitted++;
         conditionMatchedTrialCounts[conditionName] += 1;
@@ -361,6 +504,7 @@ void PyramidPSTH::handleTTLEvent (TTLEventPtr event)
     activeAlignSample = -1;
     activeAlignTimestampSeconds = -1.0;
     activeTrialSampleRate = 0.0f;
+    activeTrialStartSampleNumber = -1;
 }
 
 void PyramidPSTH::handleSpike (SpikePtr spike)
@@ -422,6 +566,7 @@ void PyramidPSTH::clearRules()
     trialActive = false;
     activeTrialStartSequence = 0;
     activeTrialStartSystemTimeMs = 0;
+    activeTrialStartSampleNumber = -1;
     ttlSeen = 0;
     trialsEmitted = 0;
     spikeSeen = 0;
@@ -441,8 +586,24 @@ void PyramidPSTH::clearRules()
     activeTrialStreamId = 0;
     activeAlignSample = -1;
     activeAlignTimestampSeconds = -1.0;
+    activeAlignSystemTimeMs = -1;
     activeTrialSampleRate = 0.0f;
     activeTrialSpikes.clearQuick();
+    lastTrialStartSystemTimeMs = -1;
+    lastTrialStartWithPrebufferSystemTimeMs = -1;
+    lastTrialEndSystemTimeMs = -1;
+    lastTrialAlignSystemTimeMs = -1;
+    lastConditionEventSystemTimeMs = -1;
+    lastTrialStartAcqTimeSeconds = -1.0;
+    lastTrialEndAcqTimeSeconds = -1.0;
+    lastTrialAlignAcqTimeSeconds = -1.0;
+    lastConditionEventAcqTimeSeconds = -1.0;
+    lastTextEventSampleNumber = -1;
+    lastTrialStartSampleNumberDebug = -1;
+    lastTrialEndSampleNumberDebug = -1;
+    lastAlignEventSampleNumber = -1;
+    lastConditionEventSampleNumber = -1;
+    alignSampleDomainRejects = 0;
     clearPsthAccumulation();
     configuredConditionNames.clearQuick();
     trialFilterEnabled = false;
@@ -466,6 +627,7 @@ void PyramidPSTH::saveCustomParametersToXml (XmlElement* parentElement)
     parentElement->setAttribute ("active_condition_name", activeConditionName);
     parentElement->setAttribute ("alignment_mode", int (alignmentMode));
     parentElement->setAttribute ("alignment_event_condition_name", alignmentEventConditionName);
+    parentElement->setAttribute ("align_assume_synced_streams", assumeSynchronizedStreamsForEventAlignment ? 1 : 0);
 
     auto* csvFilesElement = parentElement->createNewChildElement ("RULE_CSV_FILES");
     for (const auto& csvPath : loadedRuleCsvPaths)
@@ -514,6 +676,7 @@ void PyramidPSTH::loadCustomParametersFromXml (XmlElement* customParamsXml)
     const String restoredActiveConditionName = customParamsXml->getStringAttribute ("active_condition_name", activeConditionName);
     const int restoredAlignmentMode = customParamsXml->getIntAttribute ("alignment_mode", int (alignmentMode));
     const String restoredAlignmentEventConditionName = customParamsXml->getStringAttribute ("alignment_event_condition_name", alignmentEventConditionName);
+    const bool restoredAssumeSyncedStreams = customParamsXml->getBoolAttribute ("align_assume_synced_streams", assumeSynchronizedStreamsForEventAlignment);
 
     Array<File> csvFilesToLoad;
     loadedRuleCsvPaths.clearQuick();
@@ -596,6 +759,7 @@ void PyramidPSTH::loadCustomParametersFromXml (XmlElement* customParamsXml)
                           ? AlignmentMode::eventCode
                           : AlignmentMode::ttl);
     setAlignmentEventConditionName (restoredAlignmentEventConditionName);
+    setAssumeSynchronizedStreamsForEventAlignment (restoredAssumeSyncedStreams);
     if (restoredActiveConditionName.isNotEmpty())
         setSelectedConditionName (restoredActiveConditionName);
 }
@@ -604,9 +768,32 @@ String PyramidPSTH::getStatusText() const
 {
     auto health = ruleEngine.getHealth();
     const int conditionCount = getConditionNamesForEvaluation().size();
+    auto formatTimestampMs = [] (int64 timestampMs)
+    {
+        return timestampMs >= 0 ? String (timestampMs) : String ("na");
+    };
+
+    auto formatSeconds = [] (double timestampSeconds)
+    {
+        return timestampSeconds >= 0.0 ? String (timestampSeconds, 6) : String ("na");
+    };
+    const int preTrialBufferMs = int (getParameter ("pre_trial_buffer_ms")->getValue());
+    const double projectedPrebufferStartSeconds = lastTrialStartAcqTimeSeconds.load() >= 0.0
+                                                    ? lastTrialStartAcqTimeSeconds.load() - (double (jmax (0, preTrialBufferMs)) / 1000.0)
+                                                    : -1.0;
 
     return String()
-        + "conditions=" + String (conditionCount)
+        + "wall_clk_trial_start_ms=" + formatTimestampMs (lastTrialStartSystemTimeMs.load())
+        + " wall_clk_trial_end_ms=" + formatTimestampMs (lastTrialEndSystemTimeMs.load())
+        + " wall_clk_prebuf_start_ms=" + formatTimestampMs (lastTrialStartWithPrebufferSystemTimeMs.load())
+        + " wall_clk_align_ms=" + formatTimestampMs (lastTrialAlignSystemTimeMs.load())
+        + " wall_clk_condition_ms=" + formatTimestampMs (lastConditionEventSystemTimeMs.load())
+        + " acq_clk_trial_start_s=" + formatSeconds (lastTrialStartAcqTimeSeconds.load())
+        + " acq_clk_trial_end_s=" + formatSeconds (lastTrialEndAcqTimeSeconds.load())
+        + " acq_clk_prebuf_start_s=" + formatSeconds (projectedPrebufferStartSeconds)
+        + " acq_clk_align_s=" + formatSeconds (lastTrialAlignAcqTimeSeconds.load())
+        + " acq_clk_condition_s=" + formatSeconds (lastConditionEventAcqTimeSeconds.load())
+        + " conditions=" + String (conditionCount)
         + " rules=" + String (health.rulesLoaded)
         + " prebuf_ms=" + String (int (getParameter ("pre_trial_buffer_ms")->getValue()))
         + " text_seen=" + String (health.eventsSeen)
@@ -622,7 +809,14 @@ String PyramidPSTH::getStatusText() const
         + " spikes_accepted=" + String (spikesAccepted.load())
         + " mapping_fail=" + String (spikeMappingFailed.load())
         + " align_mode=" + String (alignmentMode == AlignmentMode::eventCode ? "event_code" : "ttl")
-        + " align_event=" + (alignmentEventConditionName.isEmpty() ? String ("none") : alignmentEventConditionName);
+        + " align_event=" + (alignmentEventConditionName.isEmpty() ? String ("none") : alignmentEventConditionName)
+        + " align_synced_streams=" + String (assumeSynchronizedStreamsForEventAlignment ? "yes" : "no")
+        + " dbg_text_sample=" + String (lastTextEventSampleNumber.load())
+        + " dbg_trial_start_sample=" + String (lastTrialStartSampleNumberDebug.load())
+        + " dbg_trial_end_sample=" + String (lastTrialEndSampleNumberDebug.load())
+        + " dbg_align_event_sample=" + String (lastAlignEventSampleNumber.load())
+        + " dbg_condition_event_sample=" + String (lastConditionEventSampleNumber.load())
+        + " dbg_align_sample_domain_rejects=" + String (alignSampleDomainRejects.load());
 }
 
 bool PyramidPSTH::hasRulesLoaded() const
@@ -707,6 +901,16 @@ void PyramidPSTH::setAlignmentEventConditionName (const String& conditionName)
 String PyramidPSTH::getAlignmentEventConditionName() const
 {
     return alignmentEventConditionName;
+}
+
+void PyramidPSTH::setAssumeSynchronizedStreamsForEventAlignment (bool shouldAssumeSynced)
+{
+    assumeSynchronizedStreamsForEventAlignment = shouldAssumeSynced;
+}
+
+bool PyramidPSTH::getAssumeSynchronizedStreamsForEventAlignment() const
+{
+    return assumeSynchronizedStreamsForEventAlignment;
 }
 
 void PyramidPSTH::setVisualizerLayoutOptions (int rowHeightPixels, int numColumns, int plotTypeId)
@@ -1027,12 +1231,17 @@ void PyramidPSTH::accumulateMatchedTrial (const String& conditionName)
         bool mappingSucceeded = false;
         float relMs = 0.0f;
 
-        if (activeAlignTimestampSeconds >= 0.0 && trialSpike.timestampSeconds >= 0.0)
+        const bool streamMatchesTrial = (trialSpike.streamId == activeTrialStreamId);
+        const bool allowTimestampPath = (alignmentMode != AlignmentMode::eventCode)
+                                        || streamMatchesTrial
+                                        || assumeSynchronizedStreamsForEventAlignment;
+
+        if (allowTimestampPath && activeAlignTimestampSeconds >= 0.0 && trialSpike.timestampSeconds >= 0.0)
         {
             relMs = float ((trialSpike.timestampSeconds - activeAlignTimestampSeconds) * 1000.0);
             mappingSucceeded = true;
         }
-        else if (trialSpike.streamId == activeTrialStreamId && activeAlignSample >= 0 && activeTrialSampleRate > 1.0f)
+        else if (streamMatchesTrial && activeAlignSample >= 0 && activeTrialSampleRate > 1.0f)
         {
             relMs = float (trialSpike.sampleNumber - activeAlignSample) * 1000.0f / activeTrialSampleRate;
             mappingSucceeded = true;

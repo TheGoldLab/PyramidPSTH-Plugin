@@ -246,6 +246,30 @@ bool PyramidRuleEngine::evaluateConditionInWindow (const String& conditionName,
     return true;
 }
 
+bool PyramidRuleEngine::evaluateConditionInWindow (const String& conditionName,
+                                                   int64 startSequence,
+                                                   int64 endSequence,
+                                                   int64 startSampleNumber,
+                                                   int64 endSampleNumber,
+                                                   int64 preTrialBufferSamples,
+                                                   bool& matched,
+                                                   String& errorMessage) const
+{
+    ignoreUnused (errorMessage);
+    matched = false;
+
+    if (conditionName.isEmpty() || startSequence > endSequence)
+        return true;
+
+    matched = conditionMatchesAnyEventInWindow (conditionName,
+                                                startSequence,
+                                                endSequence,
+                                                startSampleNumber,
+                                                endSampleNumber,
+                                                preTrialBufferSamples);
+    return true;
+}
+
 bool PyramidRuleEngine::findNearestMatchingEventSystemTime (const String& conditionName,
                                                             int64 referenceSystemTimeMs,
                                                             int maxAbsLagMs,
@@ -360,6 +384,68 @@ bool PyramidRuleEngine::findNearestMatchingEventInWindow (const String& conditio
     return found;
 }
 
+bool PyramidRuleEngine::findNearestMatchingEventInWindow (const String& conditionName,
+                                                           int64 referenceSampleNumber,
+                                                           int64 startSequence,
+                                                           int64 endSequence,
+                                                           int64 startSampleNumber,
+                                                           int64 endSampleNumber,
+                                                           int64 preTrialBufferSamples,
+                                                           ParsedEvent& matchedEvent) const
+{
+    matchedEvent = ParsedEvent();
+
+    if (conditionName.isEmpty() || startSequence > endSequence)
+        return false;
+
+    Array<Rule> conditionRules;
+    collectAllRulesForCondition (conditionName, conditionRules);
+
+    if (conditionRules.isEmpty())
+        return false;
+
+    bool found = false;
+    int64 bestAbsLag = std::numeric_limits<int64>::max();
+
+    for (const auto& event : recentEvents)
+    {
+        if (! eventInWindow (event,
+                             startSequence,
+                             endSequence,
+                             startSampleNumber,
+                             endSampleNumber,
+                             preTrialBufferSamples))
+        {
+            continue;
+        }
+
+        bool matched = false;
+        for (const auto& rule : conditionRules)
+        {
+            bool ruleMatched = false;
+            if (evaluateAgainstEvent (rule, event, ruleMatched) && ruleMatched)
+            {
+                matched = true;
+                break;
+            }
+        }
+
+        if (! matched)
+            continue;
+
+        const int64 lagSamples = referenceSampleNumber - event.sampleNumber;
+        const int64 absLagSamples = std::llabs (lagSamples);
+        if (absLagSamples < bestAbsLag)
+        {
+            bestAbsLag = absLagSamples;
+            matchedEvent = event;
+            found = true;
+        }
+    }
+
+    return found;
+}
+
 Array<String> PyramidRuleEngine::getConditionNames() const
 {
     Array<String> names;
@@ -455,9 +541,13 @@ bool PyramidRuleEngine::parseEvent (const String& text, int64 sampleNumber, int6
     parsed.systemTimeMs = systemTimeMs;
 
     if (parseEventAsJson (cleanedText, parsed))
+    {
+        tryExtractSampleNumberFromEventFields (parsed);
         return true;
+    }
 
     parseEventAsKeyValue (cleanedText, parsed);
+    tryExtractSampleNumberFromEventFields (parsed);
     return parsed.fields.size() > 0;
 }
 
@@ -502,11 +592,97 @@ void PyramidRuleEngine::parseEventAsKeyValue (const String& text, ParsedEvent& p
 
         const int atIndex = value.indexOfChar ('@');
         if (atIndex > 0)
+        {
+            const String suffix = value.substring (atIndex + 1).trim();
+            if (suffix.containsOnly ("0123456789"))
+            {
+                const int64 suffixValue = suffix.getLargeIntValue();
+                if (suffixValue > 0)
+                    parsed.sampleNumber = suffixValue;
+            }
+
             value = value.substring (0, atIndex).trim();
+        }
 
         if (key.isNotEmpty())
             parsed.fields.set (key, value);
     }
+}
+
+bool PyramidRuleEngine::tryExtractSampleNumberFromEventFields (ParsedEvent& parsed) const
+{
+    auto parseNumericCandidate = [] (String candidate, int64& valueOut)
+    {
+        candidate = candidate.trim();
+        if (candidate.isEmpty())
+            return false;
+
+        const int atIndex = candidate.lastIndexOfChar ('@');
+        if (atIndex >= 0 && atIndex < candidate.length() - 1)
+            candidate = candidate.substring (atIndex + 1).trim();
+
+        if (candidate.containsOnly ("0123456789"))
+        {
+            valueOut = candidate.getLargeIntValue();
+            return valueOut > 0;
+        }
+
+        String digits;
+        bool started = false;
+        for (int i = 0; i < candidate.length(); ++i)
+        {
+            const juce_wchar c = candidate[i];
+            if (CharacterFunctions::isDigit (c))
+            {
+                digits += String::charToString (c);
+                started = true;
+            }
+            else if (started)
+            {
+                break;
+            }
+        }
+
+        if (digits.isNotEmpty())
+        {
+            valueOut = digits.getLargeIntValue();
+            return valueOut > 0;
+        }
+
+        return false;
+    };
+
+    const StringArray candidateKeys {
+        "sample_number",
+        "sampleNumber",
+        "sample_num",
+        "sample",
+        "event_sample",
+        "oe_sample",
+        "sample_index",
+        "sampleIndex"
+    };
+
+    int64 extractedSample = -1;
+
+    for (const auto& key : candidateKeys)
+    {
+        String value;
+        if (tryGetFieldValueCaseInsensitive (parsed, key, value) && parseNumericCandidate (value, extractedSample))
+        {
+            parsed.sampleNumber = extractedSample;
+            return true;
+        }
+    }
+
+    String nameValue;
+    if (tryGetFieldValueCaseInsensitive (parsed, "name", nameValue) && parseNumericCandidate (nameValue, extractedSample))
+    {
+        parsed.sampleNumber = extractedSample;
+        return true;
+    }
+
+    return false;
 }
 
 bool PyramidRuleEngine::evaluateRule (const Rule& rule, const EvalContext& context, bool& matched) const
@@ -697,6 +873,43 @@ bool PyramidRuleEngine::conditionMatchesAnyEventInWindow (const String& conditio
     return false;
 }
 
+bool PyramidRuleEngine::conditionMatchesAnyEventInWindow (const String& conditionName,
+                                                          int64 startSequence,
+                                                          int64 endSequence,
+                                                          int64 startSampleNumber,
+                                                          int64 endSampleNumber,
+                                                          int64 preTrialBufferSamples) const
+{
+    Array<Rule> conditionRules;
+
+    collectAllRulesForCondition (conditionName, conditionRules);
+
+    if (conditionRules.isEmpty())
+        return false;
+
+    for (const auto& event : recentEvents)
+    {
+        if (! eventInWindow (event,
+                             startSequence,
+                             endSequence,
+                             startSampleNumber,
+                             endSampleNumber,
+                             preTrialBufferSamples))
+        {
+            continue;
+        }
+
+        for (const auto& rule : conditionRules)
+        {
+            bool ruleMatched = false;
+            if (evaluateAgainstEvent (rule, event, ruleMatched) && ruleMatched)
+                return true;
+        }
+    }
+
+    return false;
+}
+
 bool PyramidRuleEngine::eventInWindow (const ParsedEvent& event,
                                        int64 startSequence,
                                        int64 endSequence,
@@ -708,6 +921,19 @@ bool PyramidRuleEngine::eventInWindow (const ParsedEvent& event,
     const bool inSequenceWindow = event.sequenceNumber >= startSequence && event.sequenceNumber <= endSequence;
     const bool inBufferedTimeWindow = event.systemTimeMs >= minSystemTime && event.systemTimeMs <= endSystemTimeMs;
     return inSequenceWindow || inBufferedTimeWindow;
+}
+
+bool PyramidRuleEngine::eventInWindow (const ParsedEvent& event,
+                                       int64 startSequence,
+                                       int64 endSequence,
+                                       int64 startSampleNumber,
+                                       int64 endSampleNumber,
+                                       int64 preTrialBufferSamples) const
+{
+    const int64 minSampleNumber = startSampleNumber - jmax<int64> (0, preTrialBufferSamples);
+    const bool inSequenceWindow = event.sequenceNumber >= startSequence && event.sequenceNumber <= endSequence;
+    const bool inBufferedSampleWindow = event.sampleNumber >= minSampleNumber && event.sampleNumber <= endSampleNumber;
+    return inSequenceWindow || inBufferedSampleWindow;
 }
 
 String PyramidRuleEngine::normalize (const String& value) const
