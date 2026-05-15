@@ -92,6 +92,14 @@ void PyramidPSTH::registerParameters()
                      2000);
 
     addIntParameter (Parameter::PROCESSOR_SCOPE,
+                     "post_trial_align_grace_ms",
+                     "Post-trial align grace (ms)",
+                     "Extra time after trial end to wait for alignment event (UDP replay lag compensation)",
+                     500,
+                     0,
+                     5000);
+
+    addIntParameter (Parameter::PROCESSOR_SCOPE,
                      "pre_ms",
                      "Pre MS",
                      "PSTH pre-window in milliseconds",
@@ -265,6 +273,10 @@ void PyramidPSTH::handleTTLEvent (TTLEventPtr event)
     const int64 preTrialBufferSamples = activeTrialSampleRate > 1.0f
                                             ? int64 (std::llround (double (configuredPreTrialBufferMs) * double (activeTrialSampleRate) / 1000.0))
                                             : 0;
+    const int configuredPostTrialAlignGraceMs = int (getParameter ("post_trial_align_grace_ms")->getValue());
+    const int64 postTrialAlignGraceSamples = activeTrialSampleRate > 1.0f
+                                                 ? int64 (std::llround (double (configuredPostTrialAlignGraceMs) * double (activeTrialSampleRate) / 1000.0))
+                                                 : 0;
     const bool useAcqClockTiming = assumeSynchronizedStreamsForEventAlignment
                                    && activeTrialStartSampleNumber >= 0
                                    && trialEndSampleNumber >= 0
@@ -339,7 +351,7 @@ void PyramidPSTH::handleTTLEvent (TTLEventPtr event)
                                                                                            activeTrialStartSequence,
                                                                                            ruleEngine.getLatestParsedSequence(),
                                                                                            activeTrialStartSampleNumber,
-                                                                                           trialEndSampleNumber,
+                                                                                           trialEndSampleNumber + postTrialAlignGraceSamples,
                                                                                            preTrialBufferSamples,
                                                                                            matchedEvent)
                                             : ruleEngine.findNearestMatchingEventInWindow (alignCondition,
@@ -778,6 +790,7 @@ String PyramidPSTH::getStatusText() const
         return timestampSeconds >= 0.0 ? String (timestampSeconds, 6) : String ("na");
     };
     const int preTrialBufferMs = int (getParameter ("pre_trial_buffer_ms")->getValue());
+    const int alignRuleRows = ruleEngine.getRuleCountForCondition (alignmentEventConditionName);
     const double projectedPrebufferStartSeconds = lastTrialStartAcqTimeSeconds.load() >= 0.0
                                                     ? lastTrialStartAcqTimeSeconds.load() - (double (jmax (0, preTrialBufferMs)) / 1000.0)
                                                     : -1.0;
@@ -800,6 +813,8 @@ String PyramidPSTH::getStatusText() const
         + " parse_fail=" + String (health.parseFailures)
         + " dropped=" + String (health.droppedEvents)
         + " eval_err=" + String (health.evalErrors)
+        + " sample_override_count=" + String (health.sampleOverrideCount)
+        + " sample_override_last=" + String (health.sampleOverrideLastValue)
         + " ttl_filtered=" + String (ttlFilteredOut.load())
         + " align=" + String (alignmentSeen.load())
         + " trial_start=" + String (trialStartsSeen.load())
@@ -810,6 +825,7 @@ String PyramidPSTH::getStatusText() const
         + " mapping_fail=" + String (spikeMappingFailed.load())
         + " align_mode=" + String (alignmentMode == AlignmentMode::eventCode ? "event_code" : "ttl")
         + " align_event=" + (alignmentEventConditionName.isEmpty() ? String ("none") : alignmentEventConditionName)
+        + " dbg_align_rule_rows=" + String (alignRuleRows)
         + " align_synced_streams=" + String (assumeSynchronizedStreamsForEventAlignment ? "yes" : "no")
         + " dbg_text_sample=" + String (lastTextEventSampleNumber.load())
         + " dbg_trial_start_sample=" + String (lastTrialStartSampleNumberDebug.load())

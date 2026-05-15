@@ -33,6 +33,53 @@ cmake -G "Xcode" ..
 cmake --build . --config Release --target PyramidPSTH
 ```
 
+## UDP replay test workflow (live-like)
+
+Two helper scripts are included under `scripts/`:
+
+- `scripts/mute_message_center.py` — backs up and clears saved `MessageCenter` events in a recording (to avoid duplicate text events from `File Reader` + UDP replay).
+- `scripts/replay_udp_events.py` — replays Rex-like text payloads to `UDPEvents` over localhost UDP, with optional sync TTL injection from recorded TTL arrays.
+
+### 1) Optional: mute saved MessageCenter events
+
+```bash
+python3 scripts/mute_message_center.py \
+   --recording-dir "/Volumes/Extreme SSD/Neuropixel/MrM/Synthetic/MrM_NP_2026-02-02_AP_only/Record Node 107/experiment1/recording1"
+```
+
+### 2) Run replay while acquisition is active
+
+In Open Ephys, build a chain with `File Reader -> UDP Events -> Pyramid PSTH` on the same selected stream.
+Set `UDP Events` host/port to match script args (default `127.0.0.1:12345`).
+
+Quick one-command workflow (recommended):
+
+```bash
+bash scripts/start_udp_replay.sh \
+   --recording-dir "/Volumes/Extreme SSD/Neuropixel/MrM/Synthetic/MrM_NP_2026-02-02_AP_only/Record Node 107/experiment1/recording1"
+```
+
+This wrapper waits for `UDP Events` ACK readiness, so you can keep your usual routine:
+1) press **Start Acquisition** in GUI,
+2) run one command above.
+
+Then run:
+
+```bash
+python3 scripts/replay_udp_events.py \
+   --recording-dir "/Volumes/Extreme SSD/Neuropixel/MrM/Synthetic/MrM_NP_2026-02-02_AP_only/Record Node 107/experiment1/recording1" \
+   --host 127.0.0.1 --port 12345 \
+   --wait-for-udpevents \
+   --inject-sync-ttl \
+   --ttl-stream-name "Neuropix-PXI-122.ProbeA-AP" \
+   --sync-line-1-based 4 \
+   --sync-state both \
+   --strip-udp-suffix \
+   --speed 1.0
+```
+
+`--wait-for-udpevents` lets you keep your normal workflow: press **Start Acquisition**, then run the command; the script waits for UDPEvents ACK readiness before replaying.
+
 ## CI workflow behavior
 
 `build-plugin-binaries.yml` does this:

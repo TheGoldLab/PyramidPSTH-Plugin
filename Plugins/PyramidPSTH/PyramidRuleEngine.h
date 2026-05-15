@@ -58,6 +58,8 @@ public:
         int64 droppedEvents = 0;
         int64 rulesLoaded = 0;
         int64 evalErrors = 0;
+        int64 sampleOverrideCount = 0;
+        int64 sampleOverrideLastValue = -1;
     };
 
     PyramidRuleEngine();
@@ -106,6 +108,7 @@ public:
                                            ParsedEvent& matchedEvent) const;
 
     Array<String> getConditionNames() const;
+    int getRuleCountForCondition (const String& conditionName) const;
     const Array<Rule>& getManualRules() const { return manualRules; }
     Health getHealth() const;
     int64 getLatestParsedSequence() const;
@@ -165,6 +168,8 @@ private:
     std::atomic<int64> rulesLoaded { 0 };
     std::atomic<int64> evalErrors { 0 };
     std::atomic<int64> parsedEventSequence { 0 };
+    std::atomic<int64> sampleOverrideCount { 0 };
+    std::atomic<int64> sampleOverrideLastValue { -1 };
 
     StringPairArray aliasNameToCodeValue;
     StringPairArray aliasCodeValueToName;

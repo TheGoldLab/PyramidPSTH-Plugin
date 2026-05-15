@@ -168,6 +168,8 @@ void PyramidRuleEngine::reset()
     rulesLoaded = 0;
     evalErrors = 0;
     parsedEventSequence = 0;
+    sampleOverrideCount = 0;
+    sampleOverrideLastValue = -1;
 }
 
 void PyramidRuleEngine::ingestTextEvent (const String& text, int64 sampleNumber, int64 systemTimeMs)
@@ -180,6 +182,12 @@ void PyramidRuleEngine::ingestTextEvent (const String& text, int64 sampleNumber,
     {
         parseFailures++;
         return;
+    }
+
+    if (sampleNumber >= 0 && parsed.sampleNumber >= 0 && parsed.sampleNumber != sampleNumber)
+    {
+        sampleOverrideCount++;
+        sampleOverrideLastValue = parsed.sampleNumber;
     }
 
     parsed.sequenceNumber = ++parsedEventSequence;
@@ -465,6 +473,16 @@ Array<String> PyramidRuleEngine::getConditionNames() const
     return names;
 }
 
+int PyramidRuleEngine::getRuleCountForCondition (const String& conditionName) const
+{
+    if (conditionName.trim().isEmpty())
+        return 0;
+
+    Array<Rule> conditionRules;
+    collectAllRulesForCondition (conditionName.trim(), conditionRules);
+    return conditionRules.size();
+}
+
 PyramidRuleEngine::Health PyramidRuleEngine::getHealth() const
 {
     Health health;
@@ -473,6 +491,8 @@ PyramidRuleEngine::Health PyramidRuleEngine::getHealth() const
     health.droppedEvents = droppedEvents.load();
     health.rulesLoaded = rulesLoaded.load();
     health.evalErrors = evalErrors.load();
+    health.sampleOverrideCount = sampleOverrideCount.load();
+    health.sampleOverrideLastValue = sampleOverrideLastValue.load();
     return health;
 }
 
@@ -594,9 +614,14 @@ void PyramidRuleEngine::parseEventAsKeyValue (const String& text, ParsedEvent& p
         if (atIndex > 0)
         {
             const String suffix = value.substring (atIndex + 1).trim();
-            if (suffix.containsOnly ("0123456789"))
+            String sampleCandidate = suffix;
+            const int equalsIndex = sampleCandidate.lastIndexOfChar ('=');
+            if (equalsIndex >= 0 && equalsIndex < sampleCandidate.length() - 1)
+                sampleCandidate = sampleCandidate.substring (equalsIndex + 1).trim();
+
+            if (sampleCandidate.containsOnly ("0123456789"))
             {
-                const int64 suffixValue = suffix.getLargeIntValue();
+                const int64 suffixValue = sampleCandidate.getLargeIntValue();
                 if (suffixValue > 0)
                     parsed.sampleNumber = suffixValue;
             }
@@ -673,13 +698,6 @@ bool PyramidRuleEngine::tryExtractSampleNumberFromEventFields (ParsedEvent& pars
             parsed.sampleNumber = extractedSample;
             return true;
         }
-    }
-
-    String nameValue;
-    if (tryGetFieldValueCaseInsensitive (parsed, "name", nameValue) && parseNumericCandidate (nameValue, extractedSample))
-    {
-        parsed.sampleNumber = extractedSample;
-        return true;
     }
 
     return false;
@@ -769,7 +787,7 @@ bool PyramidRuleEngine::evaluateAgainstEvent (const Rule& rule, const ParsedEven
         if (rule.op == Operator::equals && rule.expectedValue.isNotEmpty())
             matched = normalize (foundValue) == normalize (rule.expectedValue);
         else
-            matched = foundValue.isNotEmpty();
+            matched = keyPresent || foundValue.isNotEmpty();
 
         if (! matched)
         {
@@ -933,6 +951,13 @@ bool PyramidRuleEngine::eventInWindow (const ParsedEvent& event,
     const int64 minSampleNumber = startSampleNumber - jmax<int64> (0, preTrialBufferSamples);
     const bool inSequenceWindow = event.sequenceNumber >= startSequence && event.sequenceNumber <= endSequence;
     const bool inBufferedSampleWindow = event.sampleNumber >= minSampleNumber && event.sampleNumber <= endSampleNumber;
+
+    const bool hasValidSampleWindow = startSampleNumber >= 0 && endSampleNumber >= startSampleNumber;
+    const bool eventHasSample = event.sampleNumber >= 0;
+
+    if (hasValidSampleWindow && eventHasSample)
+        return inBufferedSampleWindow;
+
     return inSequenceWindow || inBufferedSampleWindow;
 }
 
