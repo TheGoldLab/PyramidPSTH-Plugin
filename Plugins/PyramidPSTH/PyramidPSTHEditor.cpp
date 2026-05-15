@@ -916,8 +916,8 @@ void PyramidPSTHEditor::openConfigureDialog()
                               AlertWindow::NoIcon);
 
         editWindow.addTextEditor ("condition_name", editName, "Condition Name");
-        editWindow.addTextEditor ("code_key", editCodeKey, "Event Code Key");
-        editWindow.addTextEditor ("expected_value", editValue, "Expected Value");
+        editWindow.addTextEditor ("code_key", editCodeKey, "Event Code Key (e.g., trial_id, name)");
+        editWindow.addTextEditor ("expected_value", editValue, "Expected Value (leave empty to match key existence)");
 
         editWindow.addButton ("Save", 1);
         if (selectResult == 2)
@@ -932,7 +932,7 @@ void PyramidPSTHEditor::openConfigureDialog()
             const String newCode = editWindow.getTextEditorContents ("code_key").trim();
             const String newValue = editWindow.getTextEditorContents ("expected_value").trim();
 
-            if (newName.isNotEmpty() && newCode.isNotEmpty() && newValue.isNotEmpty())
+            if (newName.isNotEmpty() && newCode.isNotEmpty())
             {
                 // Remove old condition if editing
                 if (!selectedConditionName.isEmpty())
@@ -1059,14 +1059,15 @@ void PyramidPSTHEditor::applyManualRulesToProcessor (const String& preferredCond
         const String codeKey = condition.codeKey.trim();
         const String expectedValue = condition.expectedValue.trim();
 
-        if (conditionName.isEmpty() || codeKey.isEmpty() || expectedValue.isEmpty())
+        if (conditionName.isEmpty() || codeKey.isEmpty())
             continue;
 
         PyramidRuleEngine::Rule rule;
         rule.conditionName = conditionName;
         rule.codeKey = codeKey;
         rule.codeType = PyramidRuleEngine::CodeType::value;
-        rule.op = PyramidRuleEngine::Operator::equals;
+        // If expectedValue is empty, use "exists" operator; otherwise use "equals"
+        rule.op = expectedValue.isEmpty() ? PyramidRuleEngine::Operator::exists : PyramidRuleEngine::Operator::equals;
         rule.expectedValue = expectedValue;
         rule.lookbackMs = 1500;
         rules.add (rule);
