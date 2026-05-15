@@ -78,6 +78,18 @@ bool PyramidRuleEngine::loadRulesFromCsvFiles (const Array<File>& files, String&
                 const String codeValue = columns[1].trim();
                 const String name = columns[2].trim();
 
+                if (name.isNotEmpty() && codeValue.isNotEmpty())
+                {
+                    const String normalizedName = normalize (name);
+                    const String normalizedCodeValue = normalize (codeValue);
+
+                    if (aliasNameToCodeValue[normalizedName].isEmpty())
+                        aliasNameToCodeValue.set (normalizedName, normalizedCodeValue);
+
+                    if (aliasCodeValueToName[normalizedCodeValue].isEmpty())
+                        aliasCodeValueToName.set (normalizedCodeValue, normalizedName);
+                }
+
                 rule.conditionName = name;
                 rule.codeKey = "name";
                 rule.codeType = parseCodeType (type);
@@ -148,6 +160,8 @@ void PyramidRuleEngine::reset()
     rules.clear();
     manualRules.clear();
     recentEvents.clear();
+    aliasNameToCodeValue.clear();
+    aliasCodeValueToName.clear();
     eventsSeen = 0;
     parseFailures = 0;
     droppedEvents = 0;
@@ -521,17 +535,56 @@ bool PyramidRuleEngine::evaluateAgainstEvent (const Rule& rule, const ParsedEven
 
     const String key = normalize (rule.codeKey);
     String foundValue;
+    bool keyPresent = false;
+    String mappedCodeValue = aliasNameToCodeValue[key];
+    String mappedName = aliasCodeValueToName[key];
+
+    StringArray candidateKeys;
+    candidateKeys.addIfNotAlreadyThere (key);
+
+    if (mappedCodeValue.isNotEmpty())
+        candidateKeys.addIfNotAlreadyThere (mappedCodeValue);
+
+    if (mappedName.isNotEmpty())
+        candidateKeys.addIfNotAlreadyThere (mappedName);
 
     const StringArray fieldKeys = event.fields.getAllKeys();
 
-    for (int i = 0; i < fieldKeys.size(); ++i)
+    for (const auto& candidateKey : candidateKeys)
     {
-        const String fieldKey = fieldKeys[i];
-
-        if (normalize (fieldKey) == key)
+        for (int i = 0; i < fieldKeys.size(); ++i)
         {
-            foundValue = event.fields.getValue (fieldKey, "");
+            const String fieldKey = fieldKeys[i];
+
+            if (normalize (fieldKey) == candidateKey)
+            {
+                keyPresent = true;
+                foundValue = event.fields.getValue (fieldKey, "");
+                break;
+            }
+        }
+
+        if (keyPresent)
             break;
+    }
+
+    if (foundValue.isEmpty() && (mappedCodeValue.isNotEmpty() || key.containsOnly ("0123456789")))
+    {
+        String eventName;
+        String eventValue;
+
+        if (tryGetFieldValueCaseInsensitive (event, "name", eventName))
+        {
+            const String normalizedEventName = normalize (eventName);
+            const String targetCode = mappedCodeValue.isNotEmpty() ? mappedCodeValue : key;
+
+            if (normalizedEventName == targetCode)
+            {
+                keyPresent = true;
+
+                if (tryGetFieldValueCaseInsensitive (event, "value", eventValue))
+                    foundValue = eventValue;
+            }
         }
     }
 
@@ -556,9 +609,23 @@ bool PyramidRuleEngine::evaluateAgainstEvent (const Rule& rule, const ParsedEven
 
     if (foundValue.isEmpty())
     {
-        const String normalizedExpected = normalize (rule.expectedValue.isNotEmpty() ? rule.expectedValue : rule.conditionName);
-        const String normalizedRaw = normalize (event.raw);
-        matched = normalizedExpected.isNotEmpty() && normalizedRaw.contains (normalizedExpected);
+        if (rule.op == Operator::exists && keyPresent)
+        {
+            matched = true;
+            return true;
+        }
+
+        if (key == "name" || key == "value")
+        {
+            const String normalizedExpected = normalize (rule.expectedValue.isNotEmpty() ? rule.expectedValue : rule.conditionName);
+            const String normalizedRaw = normalize (event.raw);
+            matched = normalizedExpected.isNotEmpty() && normalizedRaw.contains (normalizedExpected);
+        }
+        else
+        {
+            matched = false;
+        }
+
         return true;
     }
 
@@ -648,17 +715,42 @@ String PyramidRuleEngine::normalize (const String& value) const
     return value.trim().toLowerCase();
 }
 
+bool PyramidRuleEngine::tryGetFieldValueCaseInsensitive (const ParsedEvent& event,
+                                                         const String& key,
+                                                         String& value) const
+{
+    const String normalizedKey = normalize (key);
+    const StringArray fieldKeys = event.fields.getAllKeys();
+
+    for (int i = 0; i < fieldKeys.size(); ++i)
+    {
+        const String fieldKey = fieldKeys[i];
+
+        if (normalize (fieldKey) == normalizedKey)
+        {
+            value = event.fields.getValue (fieldKey, "");
+            return true;
+        }
+    }
+
+    value.clear();
+    return false;
+}
+
 void PyramidRuleEngine::collectAllRulesForCondition (const String& conditionName, Array<Rule>& conditionRules) const
 {
     conditionRules.clearQuick();
 
-    for (const auto& rule : rules)
+    for (const auto& rule : manualRules)
     {
         if (rule.conditionName.equalsIgnoreCase (conditionName))
             conditionRules.add (rule);
     }
 
-    for (const auto& rule : manualRules)
+    if (! conditionRules.isEmpty())
+        return;
+
+    for (const auto& rule : rules)
     {
         if (rule.conditionName.equalsIgnoreCase (conditionName))
             conditionRules.add (rule);

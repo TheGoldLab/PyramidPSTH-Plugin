@@ -815,6 +815,8 @@ void PyramidPSTH::getConditionSnapshots (std::vector<ConditionSnapshot>& snapsho
 
     const auto conditionNames = getConditionNamesForEvaluation();
     const float binWidthSec = float (psthBinMs) / 1000.0f;
+    auto knownElectrodes = getKnownElectrodeNames();
+    knownElectrodes.sort (true);
 
     auto appendSnapshot = [&] (const ConditionAccumulator& accumulator)
     {
@@ -841,6 +843,20 @@ void PyramidPSTH::getConditionSnapshots (std::vector<ConditionSnapshot>& snapsho
         snapshots.push_back (std::move (snapshot));
     };
 
+    auto appendPlaceholderSnapshot = [&] (const String& conditionName, const String& electrodeName)
+    {
+        ConditionSnapshot snapshot;
+        snapshot.conditionName = conditionName;
+        snapshot.electrodeName = electrodeName;
+        snapshot.sortedUnit = -1;
+        snapshot.panelLabel = electrodeName.isEmpty()
+                                  ? (conditionName + " | waiting for channels")
+                                  : (conditionName + " | " + electrodeName + " | unit ?");
+        snapshot.ratesHz.insertMultiple (0, 0.0f, psthBins);
+        snapshot.matchedTrialCount = 0;
+        snapshots.push_back (std::move (snapshot));
+    };
+
     if (conditionNames.isEmpty())
     {
         for (const auto& accumulator : conditionAccumulators)
@@ -850,12 +866,39 @@ void PyramidPSTH::getConditionSnapshots (std::vector<ConditionSnapshot>& snapsho
 
     for (const auto& conditionName : conditionNames)
     {
+        const size_t snapshotCountBefore = snapshots.size();
+
         for (const auto& accumulator : conditionAccumulators)
         {
             if (accumulator.conditionName != conditionName)
                 continue;
             appendSnapshot (accumulator);
         }
+
+        if (snapshots.size() > snapshotCountBefore)
+            continue;
+
+        if (knownElectrodes.isEmpty())
+        {
+            appendPlaceholderSnapshot (conditionName, String());
+            continue;
+        }
+
+        bool emittedPlaceholder = false;
+        for (const auto& electrode : knownElectrodes)
+        {
+            ConditionAccumulator probe;
+            probe.electrodeName = electrode;
+
+            if (! panelMatchesElectrodeFilter (probe))
+                continue;
+
+            appendPlaceholderSnapshot (conditionName, electrode);
+            emittedPlaceholder = true;
+        }
+
+        if (! emittedPlaceholder)
+            appendPlaceholderSnapshot (conditionName, String());
     }
 }
 

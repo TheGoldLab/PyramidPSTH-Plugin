@@ -118,6 +118,9 @@ private:
                         int64 endSystemTimeMs,
                         int preTrialBufferMs) const;
 
+    bool tryGetFieldValueCaseInsensitive (const ParsedEvent& event,
+                                          const String& key,
+                                          String& value) const;
     String normalize (const String& value) const;
     void collectAllRulesForCondition (const String& conditionName, Array<Rule>& conditionRules) const;
 
@@ -133,6 +136,9 @@ private:
     std::atomic<int64> rulesLoaded { 0 };
     std::atomic<int64> evalErrors { 0 };
     std::atomic<int64> parsedEventSequence { 0 };
+
+    StringPairArray aliasNameToCodeValue;
+    StringPairArray aliasCodeValueToName;
 };
 
 #endif

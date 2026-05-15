@@ -79,8 +79,13 @@ public:
         processor->getPsthWindowOptions (preMs, postMs, binSizeMs);
         maxRasterTrials = processor->getMaxRasterTrials();
         electrodeFilterSpec = processor->getElectrodeFilterSpec();
-        availableElectrodes = processor->getKnownElectrodeNames();
-        availableElectrodes.sort (true);
+
+        auto latestElectrodes = processor->getKnownElectrodeNames();
+        latestElectrodes.sort (true);
+
+        if (! latestElectrodes.isEmpty() || availableElectrodes.isEmpty())
+            availableElectrodes = latestElectrodes;
+
         syncElectrodeSelectionFromSpec();
         refreshElectrodeSummaryText();
 
