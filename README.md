@@ -92,6 +92,23 @@ python3 scripts/replay_udp_events.py \
    - `macos-latest` → uploads `PyramidPSTH-macos.zip`
    - `windows-latest` → uploads `PyramidPSTH-windows.zip`
 
+### Faster Windows-only distribution
+
+If you only need a Windows plugin (and want to avoid full macOS+Windows release time), use:
+
+- `.github/workflows/build-windows-plugin-fast.yml`
+
+This workflow:
+
+1. Builds only on `windows-latest`
+2. Uploads `PyramidPSTH-windows.zip` as an Actions artifact (`PyramidPSTH-windows-fast`)
+3. Optionally uploads/overwrites `PyramidPSTH-windows.zip` on an existing GitHub Release tag (for example `v1.0.0`)
+
+Recommended usage:
+
+- Keep your standard cross-platform release workflow for official full releases.
+- Use the fast Windows-only workflow for quick turnaround when only Windows users need an update.
+
 ## Recommended branching/release setup
 
 - `main`: stable plugin

@@ -1,0 +1,93 @@
+name: Build Windows PyramidPSTH (Fast)
+
+on:
+  workflow_dispatch:
+    inputs:
+      open_ephys_ref:
+        description: "OpenEphysGUI ref (branch/tag/SHA)"
+        required: false
+        default: "main"
+      upload_to_release:
+        description: "Also upload zip to an existing GitHub Release tag"
+        required: false
+        default: false
+        type: boolean
+      release_tag:
+        description: "Existing release tag (required if upload_to_release=true), e.g. v1.0.0"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout plugin repo
+        uses: actions/checkout@v4
+
+      - name: Checkout OpenEphysGUI
+        uses: actions/checkout@v4
+        with:
+          repository: open-ephys/plugin-GUI
+          ref: ${{ github.event.inputs.open_ephys_ref || 'main' }}
+          path: OpenEphysGUI
+
+      - name: Inject PyramidPSTH plugin source
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf OpenEphysGUI/Plugins/PyramidPSTH
+          mkdir -p OpenEphysGUI/Plugins
+          cp -R Plugins/PyramidPSTH OpenEphysGUI/Plugins/
+
+          if ! grep -q "add_subdirectory(PyramidPSTH)" OpenEphysGUI/Plugins/CMakeLists.txt; then
+            echo "add_subdirectory(PyramidPSTH)" >> OpenEphysGUI/Plugins/CMakeLists.txt
+          fi
+
+      - name: Configure (Windows)
+        shell: bash
+        run: |
+          cmake -S OpenEphysGUI -B OpenEphysGUI/Build -G "Visual Studio 17 2022" -A x64
+
+      - name: Build plugin target
+        shell: bash
+        run: |
+          cmake --build OpenEphysGUI/Build --config Release --target PyramidPSTH
+
+      - name: Package Windows artifact
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          $dll = Get-ChildItem -Path OpenEphysGUI/Build -Recurse -Filter PyramidPSTH.dll | Select-Object -First 1
+          if (-not $dll) {
+            throw 'PyramidPSTH.dll not found'
+          }
+          Copy-Item $dll.FullName dist\PyramidPSTH.dll -Force
+          Compress-Archive -Path dist\PyramidPSTH.dll -DestinationPath dist\PyramidPSTH-windows.zip -Force
+
+      - name: Upload artifact (Actions tab)
+        uses: actions/upload-artifact@v4
+        with:
+          name: PyramidPSTH-windows-fast
+          path: dist/PyramidPSTH-windows.zip
+          if-no-files-found: error
+
+      - name: Validate release tag input
+        if: ${{ github.event.inputs.upload_to_release == 'true' && github.event.inputs.release_tag == '' }}
+        shell: bash
+        run: |
+          echo "upload_to_release=true but release_tag is empty"
+          exit 1
+
+      - name: Upload zip to existing release
+        if: ${{ github.event.inputs.upload_to_release == 'true' && github.event.inputs.release_tag != '' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.release_tag }}
+          files: dist/PyramidPSTH-windows.zip
+          overwrite_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

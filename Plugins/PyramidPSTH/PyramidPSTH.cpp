@@ -1244,13 +1244,15 @@ void PyramidPSTH::accumulateMatchedTrial (const String& conditionName)
         const bool allowTimestampPath = (alignmentMode != AlignmentMode::eventCode)
                                         || streamMatchesTrial
                                         || assumeSynchronizedStreamsForEventAlignment;
+        const bool allowSamplePath = streamMatchesTrial
+                         || assumeSynchronizedStreamsForEventAlignment;
 
         if (allowTimestampPath && activeAlignTimestampSeconds >= 0.0 && trialSpike.timestampSeconds >= 0.0)
         {
             relMs = float ((trialSpike.timestampSeconds - activeAlignTimestampSeconds) * 1000.0);
             mappingSucceeded = true;
         }
-        else if (streamMatchesTrial && activeAlignSample >= 0 && activeTrialSampleRate > 1.0f)
+        else if (allowSamplePath && activeAlignSample >= 0 && trialSpike.sampleNumber >= 0 && activeTrialSampleRate > 1.0f)
         {
             relMs = float (trialSpike.sampleNumber - activeAlignSample) * 1000.0f / activeTrialSampleRate;
             mappingSucceeded = true;
