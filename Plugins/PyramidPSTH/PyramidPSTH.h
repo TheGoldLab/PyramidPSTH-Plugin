@@ -199,6 +199,7 @@ private:
     std::atomic<int64> lastAlignEventSampleNumber { -1 };
     std::atomic<int64> lastConditionEventSampleNumber { -1 };
     std::atomic<int64> alignSampleDomainRejects { 0 };
+    std::atomic<int64> alignEventNotFoundInWindow { 0 };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PyramidPSTH);
 };

@@ -351,7 +351,7 @@ bool PyramidRuleEngine::findNearestMatchingEventInWindow (const String& conditio
         return false;
 
     bool found = false;
-    int64 bestAbsLag = std::numeric_limits<int64>::max();
+    int64 bestSequenceNumber = -1;
 
     for (const auto& event : recentEvents)
     {
@@ -379,11 +379,10 @@ bool PyramidRuleEngine::findNearestMatchingEventInWindow (const String& conditio
         if (! matched)
             continue;
 
-        const int64 lagMs = referenceSystemTimeMs - event.systemTimeMs;
-        const int64 absLagMs = std::llabs (lagMs);
-        if (absLagMs < bestAbsLag)
+        // Prefer the most recently received event (highest sequence number)
+        if (event.sequenceNumber > bestSequenceNumber)
         {
-            bestAbsLag = absLagMs;
+            bestSequenceNumber = event.sequenceNumber;
             matchedEvent = event;
             found = true;
         }
@@ -413,7 +412,7 @@ bool PyramidRuleEngine::findNearestMatchingEventInWindow (const String& conditio
         return false;
 
     bool found = false;
-    int64 bestAbsLag = std::numeric_limits<int64>::max();
+    int64 bestSequenceNumber = -1;
 
     for (const auto& event : recentEvents)
     {
@@ -441,11 +440,10 @@ bool PyramidRuleEngine::findNearestMatchingEventInWindow (const String& conditio
         if (! matched)
             continue;
 
-        const int64 lagSamples = referenceSampleNumber - event.sampleNumber;
-        const int64 absLagSamples = std::llabs (lagSamples);
-        if (absLagSamples < bestAbsLag)
+        // Prefer the most recently received event (highest sequence number)
+        if (event.sequenceNumber > bestSequenceNumber)
         {
-            bestAbsLag = absLagSamples;
+            bestSequenceNumber = event.sequenceNumber;
             matchedEvent = event;
             found = true;
         }

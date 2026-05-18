@@ -92,14 +92,6 @@ void PyramidPSTH::registerParameters()
                      2000);
 
     addIntParameter (Parameter::PROCESSOR_SCOPE,
-                     "post_trial_align_grace_ms",
-                     "Post-trial align grace (ms)",
-                     "Extra time after trial end to wait for alignment event (UDP replay lag compensation)",
-                     500,
-                     0,
-                     5000);
-
-    addIntParameter (Parameter::PROCESSOR_SCOPE,
                      "pre_ms",
                      "Pre MS",
                      "PSTH pre-window in milliseconds",
@@ -273,10 +265,6 @@ void PyramidPSTH::handleTTLEvent (TTLEventPtr event)
     const int64 preTrialBufferSamples = activeTrialSampleRate > 1.0f
                                             ? int64 (std::llround (double (configuredPreTrialBufferMs) * double (activeTrialSampleRate) / 1000.0))
                                             : 0;
-    const int configuredPostTrialAlignGraceMs = int (getParameter ("post_trial_align_grace_ms")->getValue());
-    const int64 postTrialAlignGraceSamples = activeTrialSampleRate > 1.0f
-                                                 ? int64 (std::llround (double (configuredPostTrialAlignGraceMs) * double (activeTrialSampleRate) / 1000.0))
-                                                 : 0;
     const bool useAcqClockTiming = assumeSynchronizedStreamsForEventAlignment
                                    && activeTrialStartSampleNumber >= 0
                                    && trialEndSampleNumber >= 0
@@ -351,7 +339,7 @@ void PyramidPSTH::handleTTLEvent (TTLEventPtr event)
                                                                                            activeTrialStartSequence,
                                                                                            ruleEngine.getLatestParsedSequence(),
                                                                                            activeTrialStartSampleNumber,
-                                                                                           trialEndSampleNumber + postTrialAlignGraceSamples,
+                                                                                           trialEndSampleNumber,
                                                                                            preTrialBufferSamples,
                                                                                            matchedEvent)
                                             : ruleEngine.findNearestMatchingEventInWindow (alignCondition,
@@ -363,7 +351,10 @@ void PyramidPSTH::handleTTLEvent (TTLEventPtr event)
                                                                                            configuredPreTrialBufferMs,
                                                                                            matchedEvent);
             if (! foundAlignEvent)
+            {
+                alignEventNotFoundInWindow++;
                 return false;
+            }
             resolvedAlignSystemTimeMs = matchedEvent.systemTimeMs;
             lastAlignEventSampleNumber = matchedEvent.sampleNumber;
 
@@ -616,6 +607,7 @@ void PyramidPSTH::clearRules()
     lastAlignEventSampleNumber = -1;
     lastConditionEventSampleNumber = -1;
     alignSampleDomainRejects = 0;
+    alignEventNotFoundInWindow = 0;
     clearPsthAccumulation();
     configuredConditionNames.clearQuick();
     trialFilterEnabled = false;
@@ -832,7 +824,8 @@ String PyramidPSTH::getStatusText() const
         + " dbg_trial_end_sample=" + String (lastTrialEndSampleNumberDebug.load())
         + " dbg_align_event_sample=" + String (lastAlignEventSampleNumber.load())
         + " dbg_condition_event_sample=" + String (lastConditionEventSampleNumber.load())
-        + " dbg_align_sample_domain_rejects=" + String (alignSampleDomainRejects.load());
+        + " dbg_align_sample_domain_rejects=" + String (alignSampleDomainRejects.load())
+        + " dbg_align_event_not_found=" + String (alignEventNotFoundInWindow.load());
 }
 
 bool PyramidPSTH::hasRulesLoaded() const
