@@ -7,7 +7,8 @@
 class PyramidPSTHVisualizer : public Visualizer,
                               public ComboBox::Listener,
                               public Button::Listener,
-                              public TextEditor::Listener
+                              public TextEditor::Listener,
+                              public ScrollBar::Listener
 {
 public:
     PyramidPSTHVisualizer (PyramidPSTH* parent)
@@ -47,6 +48,10 @@ public:
         addAndMakeVisible (electrodeSelectButton.get());
         addAndMakeVisible (clearPlotsButton.get());
 
+        verticalScrollBar = std::make_unique<ScrollBar> (true);
+        verticalScrollBar->addListener (this);
+        addAndMakeVisible (verticalScrollBar.get());
+
         for (auto* editor : { preMsEditor.get(), postMsEditor.get(), binSizeEditor.get(), maxTrialsEditor.get() })
         {
             editor->setMultiLine (false);
@@ -81,7 +86,25 @@ public:
         electrodeFilterSpec = processor->getElectrodeFilterSpec();
 
         auto latestElectrodes = processor->getKnownElectrodeNames();
-        latestElectrodes.sort (true);
+        // Sort numerically by trailing integer (e.g. "Electrode 10" -> 10 < "Electrode 9" -> 9 would be wrong alphabetically)
+        {
+            auto extractNum = [] (const String& s) -> int {
+                const String t = s.trimEnd();
+                int i = t.length() - 1;
+                while (i >= 0 && CharacterFunctions::isDigit (t[i])) --i;
+                const String n = t.substring (i + 1);
+                return n.isEmpty() ? std::numeric_limits<int>::max() : n.getIntValue();
+            };
+            std::vector<String> vec;
+            for (int i = 0; i < latestElectrodes.size(); ++i)
+                vec.push_back (latestElectrodes[i]);
+            std::stable_sort (vec.begin(), vec.end(), [&] (const String& a, const String& b) {
+                return extractNum (a) < extractNum (b);
+            });
+            latestElectrodes.clear();
+            for (const auto& s : vec)
+                latestElectrodes.add (s);
+        }
 
         if (! latestElectrodes.isEmpty() || availableElectrodes.isEmpty())
             availableElectrodes = latestElectrodes;
@@ -138,6 +161,7 @@ public:
 
         syncComboSelections();
         syncTextEditors();
+        updateScrollBar();
 
         repaint();
     }
@@ -180,6 +204,13 @@ public:
         electrodeSelectButton->setBounds (electrodeX, fieldY, electrodeWidth, fieldHeight);
         clearPlotsButton->setBounds (clearX, fieldY, clearWidth, fieldHeight);
 
+        // Scrollbar sits on the right edge of the plot area
+        {
+            const auto plotArea = getLocalBounds().withBottom (optionsBarBounds.getY()).reduced (10);
+            verticalScrollBar->setBounds (plotArea.getRight() - 12, plotArea.getY(), 12, plotArea.getHeight());
+        }
+        updateScrollBar();
+
         rowHeightSelector->setBounds (rowX, fieldY, rowWidth, fieldHeight);
         columnNumberSelector->setBounds (colsX, fieldY, colsWidth, fieldHeight);
         plotTypeSelector->setBounds (plotX, fieldY, plotWidth, fieldHeight);
@@ -194,7 +225,7 @@ public:
     {
         ignoreUnused (event);
 
-        const auto area = getLocalBounds().withBottom (optionsBarBounds.getY()).reduced (10);
+        const auto area = getLocalBounds().withBottom (optionsBarBounds.getY()).reduced (10).withTrimmedRight (14);
         const int maxOffset = jmax (0, contentHeight - area.getHeight());
 
         if (maxOffset <= 0)
@@ -202,6 +233,7 @@ public:
 
         const int step = jmax (18, rowHeightPixels / 6);
         scrollOffset = jlimit (0, maxOffset, scrollOffset - int (wheel.deltaY * float (step * 4)));
+        verticalScrollBar->setCurrentRangeStart (double (scrollOffset), dontSendNotification);
         repaint (area);
     }
 
@@ -275,7 +307,7 @@ public:
             {
                 const auto& electrode = availableElectrodes[i];
                 const bool isSelected = ! noneSelected && findSelectedElectrodeIndex (electrode) >= 0;
-                menu.addItem (electrodeBaseId + i, electrode, true, isSelected);
+                menu.addItem (electrodeBaseId + i, extractElectrodeDisplayName (electrode), true, isSelected);
             }
         }
 
@@ -336,7 +368,50 @@ public:
         repaint();
     }
 
+    void scrollBarMoved (ScrollBar* bar, double newRangeStart) override
+    {
+        if (bar == verticalScrollBar.get())
+        {
+            scrollOffset = int (newRangeStart);
+            repaint (getLocalBounds().withBottom (optionsBarBounds.getY()).reduced (10).withTrimmedRight (14));
+        }
+    }
+
 private:
+    static String extractElectrodeDisplayName (const String& fullName)
+    {
+        // Strip common prefixes ("Electrode ", "CH", etc.) and return just the trailing number
+        const String t = fullName.trim();
+        int i = t.length() - 1;
+        while (i >= 0 && CharacterFunctions::isDigit (t[i])) --i;
+        const String numPart = t.substring (i + 1);
+        return numPart.isEmpty() ? t : numPart;
+    }
+
+    void updateScrollBar()
+    {
+        const auto plotArea = getLocalBounds().withBottom (optionsBarBounds.getY()).reduced (10).withTrimmedRight (14);
+        const int visibleHeight = jmax (1, plotArea.getHeight());
+        const int columns = jmax (1, numColumns);
+        const int rows = (int (conditionSnapshots.size()) + columns - 1) / columns;
+        const int gridGap = 8;
+        const int cellHeight = jmax (120, rowHeightPixels);
+        const int estimatedContentHeight = rows * cellHeight + jmax (0, rows - 1) * gridGap;
+
+        const bool needsScroll = estimatedContentHeight > visibleHeight;
+        verticalScrollBar->setVisible (needsScroll);
+
+        if (needsScroll)
+        {
+            verticalScrollBar->setRangeLimits (0.0, double (estimatedContentHeight));
+            verticalScrollBar->setCurrentRange (double (scrollOffset), double (visibleHeight), dontSendNotification);
+        }
+        else
+        {
+            scrollOffset = 0;
+        }
+    }
+
     int findSelectedElectrodeIndex (const String& electrodeName) const
     {
         for (int i = 0; i < selectedElectrodes.size(); ++i)
@@ -491,7 +566,7 @@ private:
 
     void paintPlotArea (Graphics& g)
     {
-        auto area = getLocalBounds().withBottom (optionsBarBounds.getY()).reduced (10);
+        auto area = getLocalBounds().withBottom (optionsBarBounds.getY()).reduced (10).withTrimmedRight (14);
 
         if (area.getWidth() <= 0 || area.getHeight() <= 0)
             return;
@@ -656,6 +731,7 @@ private:
     std::unique_ptr<ComboBox> plotTypeSelector;
     std::unique_ptr<UtilityButton> electrodeSelectButton;
     std::unique_ptr<UtilityButton> clearPlotsButton;
+    std::unique_ptr<ScrollBar> verticalScrollBar;
     std::unique_ptr<TextEditor> preMsEditor;
     std::unique_ptr<TextEditor> postMsEditor;
     std::unique_ptr<TextEditor> binSizeEditor;

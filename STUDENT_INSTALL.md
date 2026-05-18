@@ -37,6 +37,12 @@ If macOS blocks the plugin, right-click the plugin/app once and choose **Open**.
 7. Restart Open Ephys GUI.
 8. In the processor list, search for `Pyramid PSTH` and add it.
 
+Common Windows plugin folder locations:
+
+1. `C:/Users/<username>/AppData/Local/Open Ephys/plugins-api10`
+2. `C:/ProgramData/OpenEphys/plugins-api8`
+3. A local GitHub checkout of `open-ephys/plugin-GUI` (for development builds)
+
 ---
 
 ## Quick troubleshooting

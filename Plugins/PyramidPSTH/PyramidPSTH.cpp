@@ -1381,7 +1381,7 @@ bool PyramidPSTH::panelMatchesElectrodeFilter (const ConditionAccumulator& panel
         if (t.isEmpty())
             continue;
 
-        if (normalizedElectrode.contains (t))
+        if (normalizedElectrode == t)
             return true;
     }
 

@@ -130,6 +130,15 @@ Use GitHub Releases so students only click download files:
 
 Students then follow `STUDENT_INSTALL.md`.
 
+### Windows plugin location note
+
+For Windows users, place `PyramidPSTH.dll` in the Open Ephys GUI plugins folder.
+Common locations are:
+
+1. `C:/Users/<username>/AppData/Local/Open Ephys/plugins-api10`
+2. `C:/ProgramData/OpenEphys/plugins-api8`
+3. A local GitHub checkout of `open-ephys/plugin-GUI` (for development builds)
+
 ## Notes
 
 - The plugin depends on Open Ephys GUI internals and is not intended to build fully standalone without checking out Open Ephys GUI source.
