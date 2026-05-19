@@ -733,6 +733,60 @@ bool PyramidRuleEngine::evaluateAgainstEvent (const Rule& rule, const ParsedEven
     String eventValue;
     const bool hasEventName = tryGetFieldValueCaseInsensitive (event, "name", eventName);
     const bool hasEventValue = tryGetFieldValueCaseInsensitive (event, "value", eventValue);
+
+    auto matchesWithOperator = [&] (const String& foundValue,
+                                    const String& expectedValue,
+                                    Operator opToUse)
+    {
+        const String normalizedFound = normalize (foundValue);
+        const String normalizedExpected = normalize (expectedValue);
+
+        switch (opToUse)
+        {
+            case Operator::exists:
+                return true;
+            case Operator::equals:
+                return normalizedFound == normalizedExpected;
+            case Operator::notEquals:
+                return normalizedFound != normalizedExpected;
+            case Operator::contains:
+                return normalizedFound.contains (normalizedExpected);
+            case Operator::greaterThan:
+                return foundValue.getDoubleValue() > expectedValue.getDoubleValue();
+            case Operator::lessThan:
+                return foundValue.getDoubleValue() < expectedValue.getDoubleValue();
+            default:
+                return false;
+        }
+    };
+
+    if (resolvedCodeValue.isEmpty())
+    {
+        if ((key == "name" || key == "id") && hasEventName)
+        {
+            if (rule.expectedValue.isEmpty())
+            {
+                matched = (rule.op == Operator::exists);
+                return true;
+            }
+
+            matched = matchesWithOperator (eventName, rule.expectedValue, rule.op);
+            return true;
+        }
+
+        if (key == "value" && hasEventValue)
+        {
+            if (rule.expectedValue.isEmpty())
+            {
+                matched = (rule.op == Operator::exists);
+                return true;
+            }
+
+            matched = matchesWithOperator (eventValue, rule.expectedValue, rule.op);
+            return true;
+        }
+    }
+
     const bool codeMatches = resolvedCodeValue.isNotEmpty() && hasEventName && normalize (eventName) == resolvedCodeValue;
 
     if (rule.codeType == CodeType::time)
@@ -747,30 +801,7 @@ bool PyramidRuleEngine::evaluateAgainstEvent (const Rule& rule, const ParsedEven
             }
             else if (hasEventValue)
             {
-                const String normalizedFound = normalize (eventValue);
-                const String normalizedExpected = normalize (rule.expectedValue);
-
-                switch (rule.op)
-                {
-                    case Operator::equals:
-                        matched = normalizedFound == normalizedExpected;
-                        break;
-                    case Operator::notEquals:
-                        matched = normalizedFound != normalizedExpected;
-                        break;
-                    case Operator::contains:
-                        matched = normalizedFound.contains (normalizedExpected);
-                        break;
-                    case Operator::greaterThan:
-                        matched = eventValue.getDoubleValue() > rule.expectedValue.getDoubleValue();
-                        break;
-                    case Operator::lessThan:
-                        matched = eventValue.getDoubleValue() < rule.expectedValue.getDoubleValue();
-                        break;
-                    default:
-                        matched = true;
-                        break;
-                }
+                matched = matchesWithOperator (eventValue, rule.expectedValue, rule.op);
             }
         }
 
@@ -789,33 +820,7 @@ bool PyramidRuleEngine::evaluateAgainstEvent (const Rule& rule, const ParsedEven
     if (! hasEventValue)
         return true;
 
-    const String normalizedFound = normalize (eventValue);
-    const String normalizedExpected = normalize (rule.expectedValue);
-
-    switch (rule.op)
-    {
-        case Operator::exists:
-            matched = true;
-            break;
-        case Operator::equals:
-            matched = normalizedFound == normalizedExpected;
-            break;
-        case Operator::notEquals:
-            matched = normalizedFound != normalizedExpected;
-            break;
-        case Operator::contains:
-            matched = normalizedFound.contains (normalizedExpected);
-            break;
-        case Operator::greaterThan:
-                        matched = eventValue.getDoubleValue() > rule.expectedValue.getDoubleValue();
-            break;
-        case Operator::lessThan:
-                        matched = eventValue.getDoubleValue() < rule.expectedValue.getDoubleValue();
-            break;
-        default:
-            matched = false;
-            break;
-    }
+    matched = matchesWithOperator (eventValue, rule.expectedValue, rule.op);
 
     return true;
 }

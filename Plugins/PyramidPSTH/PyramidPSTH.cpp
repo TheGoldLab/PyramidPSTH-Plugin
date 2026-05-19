@@ -333,17 +333,18 @@ void PyramidPSTH::handleTTLEvent (TTLEventPtr event)
                 lastAlignEventDebug = "Align condition is empty.";
                 return false;
             }
+            const int64 windowEndSequence = ruleEngine.getLatestParsedSequence();
             juce::StringArray debugLines;
             debugLines.add("Align search for: " + alignCondition);
-            debugLines.add("Window: seq " + String(activeTrialStartSequence) + "-" + String(ruleEngine.getLatestParsedSequence()) + ", sample " + String(activeTrialStartSampleNumber) + "-" + String(trialEndSampleNumber));
+            debugLines.add("Window: seq " + String(activeTrialStartSequence) + "-" + String(windowEndSequence) + ", sample " + String(activeTrialStartSampleNumber) + "-" + String(trialEndSampleNumber));
             Array<PyramidRuleEngine::ParsedEvent> candidateEvents;
             for (const auto& event : ruleEngine.getRecentEvents())
             {
                 if (useAcqClockTiming) {
-                    if (!ruleEngine.eventInWindowPublic(event, activeTrialStartSequence, ruleEngine.getLatestParsedSequence(), activeTrialStartSampleNumber, trialEndSampleNumber, preTrialBufferSamples))
+                    if (!ruleEngine.eventInWindowPublic(event, activeTrialStartSequence, windowEndSequence, activeTrialStartSampleNumber, trialEndSampleNumber, preTrialBufferSamples))
                         continue;
                 } else {
-                    if (!ruleEngine.eventInWindowPublic(event, activeTrialStartSequence, ruleEngine.getLatestParsedSequence(), activeTrialStartSystemTimeMs, windowEndSystemTimeMs, configuredPreTrialBufferMs))
+                    if (!ruleEngine.eventInWindowPublic(event, activeTrialStartSequence, windowEndSequence, activeTrialStartSystemTimeMs, windowEndSystemTimeMs, configuredPreTrialBufferMs))
                         continue;
                 }
                 candidateEvents.add(event);
@@ -359,32 +360,41 @@ void PyramidPSTH::handleTTLEvent (TTLEventPtr event)
                     debugLines.add("Event[" + String(idx++) + "]: name='" + name + "', value='" + value + "', sample=" + String(event.sampleNumber) + ", sysMs=" + String(event.systemTimeMs));
                 }
             }
-            bool matched = false;
-            int bestIdx = -1;
-            int64 bestSeq = -1;
             PyramidRuleEngine::ParsedEvent matchedEvent;
-            for (int i = 0; i < candidateEvents.size(); ++i) {
-                const auto& event = candidateEvents.getReference(i);
-                bool ruleMatched = false;
-                for (const auto& rule : ruleEngine.getRules()) {
-                    if (rule.conditionName.equalsIgnoreCase(alignCondition)) {
-                        if (ruleEngine.evaluateAgainstEventPublic(rule, event, ruleMatched) && ruleMatched) {
-                            matched = true;
-                            if (event.sequenceNumber > bestSeq) {
-                                bestSeq = event.sequenceNumber;
-                                matchedEvent = event;
-                                bestIdx = i;
-                            }
-                        }
-                    }
-                }
-            }
+            const bool matched = useAcqClockTiming
+                                    ? ruleEngine.findNearestMatchingEventInWindow (alignCondition,
+                                                                                   activeTrialStartSampleNumber,
+                                                                                   activeTrialStartSequence,
+                                                                                   windowEndSequence,
+                                                                                   activeTrialStartSampleNumber,
+                                                                                   trialEndSampleNumber,
+                                                                                   preTrialBufferSamples,
+                                                                                   matchedEvent)
+                                    : ruleEngine.findNearestMatchingEventInWindow (alignCondition,
+                                                                                   activeTrialStartSystemTimeMs,
+                                                                                   activeTrialStartSequence,
+                                                                                   windowEndSequence,
+                                                                                   activeTrialStartSystemTimeMs,
+                                                                                   windowEndSystemTimeMs,
+                                                                                   configuredPreTrialBufferMs,
+                                                                                   matchedEvent);
+
             if (!matched) {
                 debugLines.add("No candidate event matched all rules for '" + alignCondition + "'.");
                 lastAlignEventDebug = debugLines.joinIntoString(" | ");
                 alignEventNotFoundInWindow++;
                 return false;
             } else {
+                int bestIdx = -1;
+                for (int i = 0; i < candidateEvents.size(); ++i)
+                {
+                    const auto& candidate = candidateEvents.getReference(i);
+                    if (candidate.sequenceNumber == matchedEvent.sequenceNumber)
+                    {
+                        bestIdx = i;
+                        break;
+                    }
+                }
                 debugLines.add("Matched event at idx=" + String(bestIdx) + ", sample=" + String(matchedEvent.sampleNumber) + ", sysMs=" + String(matchedEvent.systemTimeMs));
             }
             lastAlignEventDebug = debugLines.joinIntoString(" | ");
