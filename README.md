@@ -1,145 +1,147 @@
-# PyramidPSTH standalone plugin repo seed
+# PyramidPSTH Plugin for Open Ephys
 
-This folder is a clean starting point for creating a dedicated GitHub repo for the `PyramidPSTH` Open Ephys plugin.
+`PyramidPSTH` is an Open Ephys plugin for trial-aligned neural visualization using raster and PSTH views, with optional event-code based trial matching and alignment.
 
-## What is included
+## Purpose
+
+This plugin is built for experiments where trial structure and condition labels are carried by text events (for example Rex/Pyramid-style event codes), while spikes and TTL events come from Open Ephys streams.
+
+It acts as a lightweight version of our Pyramid conversion pipeline: [Pyramid](https://github.com/lwthompson2/pyramid).
+
+It lets you:
+
+- Align spikes to a trial event (TTL or event code)
+- Match trials by condition rules
+- Optionally filter trials with condition-specific filters
+- Visualize data per electrode/unit in raster and PSTH panels
+
+## Repository Contents
 
 - `Plugins/PyramidPSTH/` — plugin source code
-- `.github/workflows/build-plugin-binaries.yml` — CI to build plugin artifacts on macOS + Windows
-- `.github/workflows/release-plugin-binaries.yml` — tag-triggered workflow that publishes release assets
-- `scripts/sync_into_open_ephys.sh` — helper to inject this plugin into a local `OpenEphysGUI` checkout
-- `STUDENT_INSTALL.md` — no-command-line install instructions for students
+- `rules/default_ecode_rules.csv` — default event-code definitions you can load directly in the plugin
+- `scripts/` — local build/sync and replay helpers
+- `STUDENT_INSTALL.md` — no-command-line student install guide
+- `.github/workflows/` — CI workflows for plugin binaries
 
-## Create a new GitHub repo from this seed
+## Screenshots
 
-1. Create a new empty GitHub repo (example: `your-org/PyramidPSTH-plugin`).
-2. Copy this folder contents into that repo root.
-3. Commit and push.
+> The files below are currently placeholders and can be replaced with real screenshots using the same filenames.
 
-## Local dev workflow
+### 1) Basic processor setup
 
-1. Keep this plugin repo as your source of truth.
-2. Sync into an Open Ephys checkout:
+![Basic processor setup](docs/screenshots/01-processor-setup.svg)
+
+### 2) Electrode and display window settings
+
+![Electrodes and display windows](docs/screenshots/02-electrodes-and-display.svg)
+
+### 3) Trial start + alignment TTL selection
+
+![Trial and TTL lines](docs/screenshots/03-trial-and-ttl-lines.svg)
+
+### 4) Rules, conditions, and optional filters
+
+![Rules and conditions](docs/screenshots/04-rules-and-conditions.svg)
+
+### 5) Event-code alignment with synced streams
+
+![Event-code alignment](docs/screenshots/05-event-code-alignment.svg)
+
+## Installation
+
+### macOS
+
+1. Download `PyramidPSTH-mac.zip` from the latest GitHub Release.
+2. Unzip to get `PyramidPSTH.bundle`.
+3. Copy `PyramidPSTH.bundle` into your Open Ephys plugin folder (`PlugIns`).
+4. Restart Open Ephys.
+5. Add `Pyramid PSTH` from the processor list.
+
+If macOS blocks the plugin, right-click once and choose **Open**.
+
+### Windows
+
+1. Download `PyramidPSTH-windows.zip` from the latest GitHub Release.
+2. Extract to get `PyramidPSTH.dll`.
+3. Copy `PyramidPSTH.dll` into your Open Ephys plugins folder.
+4. Restart Open Ephys.
+5. Add `Pyramid PSTH` from the processor list.
+
+Common plugin folders:
+
+- `C:/Users/<username>/AppData/Local/Open Ephys/plugins-api10`
+- `C:/ProgramData/OpenEphys/plugins-api8`
+
+For a student-friendly walkthrough, see `STUDENT_INSTALL.md`.
+
+## How to Use
+
+### Basics
+
+1. Add `Pyramid PSTH` to your processing chain.
+2. Select electrodes/units you want to visualize.
+3. Set raster/PSTH display windows (`pre_ms`, `post_ms`, `bin_size`).
+4. Select a **trial start TTL line**.
+5. Select an **alignment TTL line** (for TTL alignment mode).
+
+If you intend to align by event code (not TTL), click the align-event-code control, select an alignment condition, and ensure the synced-stream assumption is set appropriately (`assume synced`) before testing alignment.
+
+### Event-code options
+
+### Load a rules CSV
+
+1. Click the rules load button in the plugin editor.
+2. Load `rules/default_ecode_rules.csv` (included in this repo), or your own compatible CSV.
+
+Supported rule formats include:
+
+- rule table: `condition_name,code_key,code_type,operator,expected_value,lookback_ms`
+- ecode definition table: `type,value,name,...`
+
+### Add conditions and optional filters
+
+1. Add condition rows in the plugin editor.
+2. For each condition, specify event code key and optional expected value.
+3. Add optional filter values if you want per-condition trial filtering.
+
+### Change alignment to use an event code
+
+1. Switch alignment mode to `event_code`.
+2. Select the desired alignment condition (for example `dot_dir` or `trial_start`).
+3. Confirm the condition exists in loaded rules.
+4. For acquisition-clock alignment behavior, use the synced-stream option appropriately.
+
+## Making Modifications and Building
+
+The plugin is developed in this repo, then synced into an Open Ephys GUI checkout for compilation.
+
+### macOS local build
+
+```bash
+bash /Users/lowell/Documents/GitHub/PyramidPSTH-Plugin/scripts/build_xcode.sh
+```
+
+This script:
+
+1. syncs `Plugins/PyramidPSTH` into your Open Ephys checkout
+2. builds scheme `PyramidPSTH`
+3. outputs a `.bundle` in the Open Ephys build products
+
+### Generic sync helper
 
 ```bash
 bash scripts/sync_into_open_ephys.sh /absolute/path/to/OpenEphysGUI
 ```
 
-3. Build from the Open Ephys repo (example macOS):
+Then build from the Open Ephys side using your preferred generator/toolchain.
 
-```bash
-cd /absolute/path/to/OpenEphysGUI/Build
-cmake -G "Xcode" ..
-cmake --build . --config Release --target PyramidPSTH
-```
+## CI Builds (GitHub Actions)
 
-## UDP replay test workflow (live-like)
-
-Two helper scripts are included under `scripts/`:
-
-- `scripts/mute_message_center.py` — backs up and clears saved `MessageCenter` events in a recording (to avoid duplicate text events from `File Reader` + UDP replay).
-- `scripts/replay_udp_events.py` — replays Rex-like text payloads to `UDPEvents` over localhost UDP, with optional sync TTL injection from recorded TTL arrays.
-
-### 1) Optional: mute saved MessageCenter events
-
-```bash
-python3 scripts/mute_message_center.py \
-   --recording-dir "/Volumes/Extreme SSD/Neuropixel/MrM/Synthetic/MrM_NP_2026-02-02_AP_only/Record Node 107/experiment1/recording1"
-```
-
-### 2) Run replay while acquisition is active
-
-In Open Ephys, build a chain with `File Reader -> UDP Events -> Pyramid PSTH` on the same selected stream.
-Set `UDP Events` host/port to match script args (default `127.0.0.1:12345`).
-
-Quick one-command workflow (recommended):
-
-```bash
-bash scripts/start_udp_replay.sh \
-   --recording-dir "/Volumes/Extreme SSD/Neuropixel/MrM/Synthetic/MrM_NP_2026-02-02_AP_only/Record Node 107/experiment1/recording1"
-```
-
-This wrapper waits for `UDP Events` ACK readiness, so you can keep your usual routine:
-1) press **Start Acquisition** in GUI,
-2) run one command above.
-
-Then run:
-
-```bash
-python3 scripts/replay_udp_events.py \
-   --recording-dir "/Volumes/Extreme SSD/Neuropixel/MrM/Synthetic/MrM_NP_2026-02-02_AP_only/Record Node 107/experiment1/recording1" \
-   --host 127.0.0.1 --port 12345 \
-   --wait-for-udpevents \
-   --inject-sync-ttl \
-   --ttl-stream-name "Neuropix-PXI-122.ProbeA-AP" \
-   --sync-line-1-based 4 \
-   --sync-state both \
-   --strip-udp-suffix \
-   --speed 1.0
-```
-
-`--wait-for-udpevents` lets you keep your normal workflow: press **Start Acquisition**, then run the command; the script waits for UDPEvents ACK readiness before replaying.
-
-## CI workflow behavior
-
-`build-plugin-binaries.yml` does this:
-
-1. Checks out this plugin repo.
-2. Checks out `open-ephys/plugin-GUI`.
-3. Replaces `OpenEphysGUI/Plugins/PyramidPSTH` with this repo’s plugin source.
-4. Ensures `add_subdirectory(PyramidPSTH)` exists in `OpenEphysGUI/Plugins/CMakeLists.txt`.
-5. Builds target `PyramidPSTH` on:
-   - `macos-latest` → uploads `PyramidPSTH-macos.zip`
-   - `windows-latest` → uploads `PyramidPSTH-windows.zip`
-
-### Faster Windows-only distribution
-
-If you only need a Windows plugin (and want to avoid full macOS+Windows release time), use:
-
-- `.github/workflows/build-windows-plugin-fast.yml`
-
-This workflow:
-
-1. Builds only on `windows-latest`
-2. Uploads `PyramidPSTH-windows.zip` as an Actions artifact (`PyramidPSTH-windows-fast`)
-3. Optionally uploads/overwrites `PyramidPSTH-windows.zip` on an existing GitHub Release tag (for example `v1.0.0`)
-
-Recommended usage:
-
-- Keep your standard cross-platform release workflow for official full releases.
-- Use the fast Windows-only workflow for quick turnaround when only Windows users need an update.
-
-## Recommended branching/release setup
-
-- `main`: stable plugin
-- feature branches: active development
-- optional tags (`vX.Y.Z`) for release snapshots
-
-You can later add a release workflow that attaches built zip artifacts to GitHub Releases.
-
-## Student-friendly distribution (recommended)
-
-Use GitHub Releases so students only click download files:
-
-1. Create a tag like `v1.0.0`.
-2. Push the tag.
-3. Workflow `.github/workflows/release-plugin-binaries.yml` builds macOS + Windows plugin binaries.
-4. The workflow creates a GitHub Release and uploads:
-   - `PyramidPSTH-mac.zip`
-   - `PyramidPSTH-windows.zip`
-
-Students then follow `STUDENT_INSTALL.md`.
-
-### Windows plugin location note
-
-For Windows users, place `PyramidPSTH.dll` in the Open Ephys GUI plugins folder.
-Common locations are:
-
-1. `C:/Users/<username>/AppData/Local/Open Ephys/plugins-api10`
-2. `C:/ProgramData/OpenEphys/plugins-api8`
-3. A local GitHub checkout of `open-ephys/plugin-GUI` (for development builds)
+- `.github/workflows/build-plugin-binaries.yml` — macOS + Windows plugin artifacts
+- `.github/workflows/build-windows-plugin-fast.yml` — faster Windows-only artifact workflow
+- `.github/workflows/release-plugin-binaries.yml` — release-tag publishing workflow
 
 ## Notes
 
-- The plugin depends on Open Ephys GUI internals and is not intended to build fully standalone without checking out Open Ephys GUI source.
-- If Open Ephys build internals change upstream, update the CI workflow checkout/build steps accordingly.
+- `PyramidPSTH` depends on Open Ephys GUI internals and is not intended as a standalone binary project.
+- If Open Ephys build internals change upstream, workflow and local build steps may need updates.

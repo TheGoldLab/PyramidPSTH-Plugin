@@ -1,0 +1,67 @@
+type,value,name,base,min,max,scale,comment
+time,2,reward_on,,,,,
+time,3,reward_off,,,,,
+time,1005,trial_start,,,,,TTL line 1 high
+time,1006,eyefix,,,,,EYINWD
+time,1007,sac_on,,,,,
+time,1010,fp_on,,,,,TTL line 2 high
+time,1025,fp_off,,,,,TTL line 3 high
+time,1030,reward_on,,,,,
+time,1037,reward_off,,,,,
+time,3000,target_on,,,,,
+time,3005,target_off,,,,,
+time,3006,fdbk_on,,,,,
+time,3116,fdbk_off,,,,,
+time,4900,dot_on,,,,,
+time,4902,dot_off,,,,,
+time,4904,all_off,,,,,TTL lines 1-3 low
+time,4905,online_correct,,,,,
+time,4906,online_error,,,,,
+time,4907,online_ncerr,,,,,
+time,4919,targ_acq,,,,,
+time,4926,online_brfix,,,,,
+value,8001,fp_x,7000,6000,8000,0.1,
+value,8002,fp_y,7000,6000,8000,0.1,
+value,8003,dots_x,7000,6000,8000,0.1,not sure about base/min/max/scale
+value,8004,dots_y,7000,6000,8000,0.1,not sure about base/min/max/scale
+value,8005,dots_diam,7000,6000,8000,0.1,not sure about base/min/max/scale
+value,8006,dots_speed,7000,6000,8000,0.1,not sure about base/min/max/scale
+value,8008,t1_x,7000,6000,8000,0.1,
+value,8009,t1_y,7000,6000,8000,0.1,
+id,8010,dot_dir,7000,6000,8000,0.1,not sure about base/min/max/scale
+id,8011,dot_coh,7000,6000,8000,0.1,not sure about base/min/max/scale
+value,8012,t2_x,7000,6000,8000,0.1,
+value,8013,t2_y,7000,6000,8000,0.1,
+value,8014,I_RUNLINE_SEED,7000,6000,8000,0.1,
+value,8015,I_RUNLINE_SCALE,7000,6000,8000,0.1,
+id,8017,trial_id,7000,6000,8000,1,
+value,8025,t1_lum,7000,6000,8000,0.1,
+value,8026,t2_lum,7000,6000,8000,0.1,
+value,8027,seed_base,7000,6000,8000,1,
+id,8032,fp_lum,7000,6000,8000,0.1,
+id,8033,task_id,7000,6000,8000,1,
+id,8034,rewcont,7000,6000,8000,1,not sure about base/min/max/scale
+value,8036,reward_len,7000,6000,8000,0.1,
+value,8048,prob_tp0,7000,6000,8000,0.001,
+value,8049,prob_tp1,7000,6000,8000,0.001,
+value,8050,prob_tp2,7000,6000,8000,0.001,
+value,8051,prob_tp3,7000,6000,8000,0.001,
+value,8052,prob_tp4,7000,6000,8000,0.001,
+value,8053,prob_tp5,7000,6000,8000,0.001,
+value,8054,prob_tp6,7000,6000,8000,0.001,
+value,8055,prob_tp7,7000,6000,8000,0.001,
+value,8056,prob_tp8,7000,6000,8000,0.001,
+value,8057,prob_tp9,7000,6000,8000,0.001,
+value,8058,prob_tpa,7000,6000,8000,0.001,
+value,8072,hazard,7000,6000,8000,0.001,
+value,8078,noise,7000,6000,8000,0.1,
+value,8080,I_RUNLINE_X0,7000,6000,8000,0.1,not sure about base/min/max/scale
+value,8081,I_RUNLINE_Y0,7000,6000,8000,0.1,not sure about base/min/max/scale
+value,8082,I_RUNLINE_XMAX1,7000,6000,8000,0.1,not sure about base/min/max/scale
+value,8083,I_RUNLINE_XMAX2,7000,6000,8000,0.1,not sure about base/min/max/scale
+value,8084,I_RUNLINE_YMAX1,7000,6000,8000,0.1,not sure about base/min/max/scale
+value,8085,I_RUNLINE_YMAX2,7000,6000,8000,0.1,not sure about base/min/max/scale
+value,8086,I_RUNLINE_STEP_MEAN_CHOICE,7000,6000,8000,0.1,not sure about base/min/max/scale
+value,8087,I_RUNLINE_STEP_SD_CHOICE,7000,6000,8000,0.1,not sure about base/min/max/scale
+value,8088,I_RUNLINE_STEP_MEAN_ORTHO,7000,6000,8000,0.1,not sure about base/min/max/scale
+value,8089,I_RUNLINE_STEP_SD_ORTHO,7000,6000,8000,0.1,not sure about base/min/max/scale

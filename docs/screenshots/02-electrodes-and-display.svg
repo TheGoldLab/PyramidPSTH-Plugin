@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="675" viewBox="0 0 1200 675">
+  <rect width="1200" height="675" fill="#0f172a"/>
+  <rect x="40" y="40" width="1120" height="595" rx="16" fill="#111827" stroke="#334155"/>
+  <text x="70" y="120" fill="#e5e7eb" font-family="Arial, Helvetica, sans-serif" font-size="40" font-weight="700">Screenshot Needed: Electrode + Raster/PSTH Windows</text>
+  <text x="70" y="185" fill="#94a3b8" font-family="Arial, Helvetica, sans-serif" font-size="28">Show electrode selection and raster/PSTH display window controls.</text>
+  <text x="70" y="245" fill="#94a3b8" font-family="Arial, Helvetica, sans-serif" font-size="28">Replace this SVG with a real screenshot using the same filename.</text>
+</svg>
