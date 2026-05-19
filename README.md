@@ -50,24 +50,32 @@ Common plugin folders:
   
 ## How to Use
 
-1) Signal chain setup
+### 1) Signal chain setup
 Add `Pyramid PSTH` to your processing chain. You must have UDPEvents in your signal chain, and you must use a spike detector with at least one channel selected. See an example signal chain below (the other source being merged is a Neuropixel OneBox).
 ![Basic processor setup](docs/screenshots/01-processor-setup.svg)
 
-2) Select electrodes/units you want to visualize by clicking the channels button.
-3) Set raster/PSTH display windows (`pre_ms`, `post_ms`, `bin_size`).
+### 2) Select electrodes/units you want to visualize by clicking the channels button.
+
+### 3) Set raster/PSTH display windows (`pre_ms`, `post_ms`, `bin_size`).
 ![Electrodes and display windows](docs/screenshots/02-electrodes-and-display.svg)
 
-4) Load a rules csv file (a pyramid spm-like csv, see the `rules/default_ecode_rules.csv` for an example) 
-5) Select a **trial start TTL line**.
-6) Select an **alignment TTL line** (for TTL alignment mode).
+### 4) Load a rules csv file (a pyramid spm-like csv, see the `rules/default_ecode_rules.csv` for an example)
+
+### 5) Select a **trial start TTL line**.
+
+### 6) Select an **alignment TTL line** (for TTL alignment mode).
+
 ![Trial and TTL lines](docs/screenshots/03-trial-and-ttl-lines.svg)
+
 **Ensure that you select Align Code and for the dropdown "Event-code stream synchronization" you select "Assume streams are synchronized"**
+
 ![Event-code alignment](docs/screenshots/05-event-code-alignment.svg)
+
 If you intend to align by event code (not TTL), click the align-event-code control, select an alignment condition, and ensure the synced-stream assumption is set appropriately (`assume synced`) before testing alignment.
 
-### Add conditions and optional filters
+### 7) Add conditions and optional filters
 ![Rules and conditions](docs/screenshots/04-rules-and-conditions.svg)
+
 1. You must have loaded a set of CSV rules already
 2. For each condition, specify an event code key (e.g., "dot_dir") and optional expected value (e.g., "135").
 3. Add optional filter values if you want per-condition trial filtering. For example, if I only wanted completed trials I could set the filter code to be "targ_acq" which indicates the monkey selected a target and completed the trial. You could also be more specific by using a filter code to be "dot_coh" (coherence) and add an expected value to filter trials with the desired coherence level.
