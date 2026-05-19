@@ -726,102 +726,70 @@ bool PyramidRuleEngine::evaluateAgainstEvent (const Rule& rule, const ParsedEven
     matched = false;
 
     const String key = normalize (rule.codeKey);
-    String foundValue;
-    bool keyPresent = false;
-    String mappedCodeValue = aliasNameToCodeValue[key];
-    String mappedName = aliasCodeValueToName[key];
-
-    StringArray candidateKeys;
-    candidateKeys.addIfNotAlreadyThere (key);
-
-    if (mappedCodeValue.isNotEmpty())
-        candidateKeys.addIfNotAlreadyThere (mappedCodeValue);
-
-    if (mappedName.isNotEmpty())
-        candidateKeys.addIfNotAlreadyThere (mappedName);
-
-    const StringArray fieldKeys = event.fields.getAllKeys();
-
-    for (const auto& candidateKey : candidateKeys)
-    {
-        for (int i = 0; i < fieldKeys.size(); ++i)
-        {
-            const String fieldKey = fieldKeys[i];
-
-            if (normalize (fieldKey) == candidateKey)
-            {
-                keyPresent = true;
-                foundValue = event.fields.getValue (fieldKey, "");
-                break;
-            }
-        }
-
-        if (keyPresent)
-            break;
-    }
-
-    if (foundValue.isEmpty() && (mappedCodeValue.isNotEmpty() || key.containsOnly ("0123456789")))
-    {
-        String eventName;
-        String eventValue;
-
-        if (tryGetFieldValueCaseInsensitive (event, "name", eventName))
-        {
-            const String normalizedEventName = normalize (eventName);
-            const String targetCode = mappedCodeValue.isNotEmpty() ? mappedCodeValue : key;
-
-            if (normalizedEventName == targetCode)
-            {
-                keyPresent = true;
-
-                if (tryGetFieldValueCaseInsensitive (event, "value", eventValue))
-                    foundValue = eventValue;
-            }
-        }
-    }
+    const String resolvedCodeValue = aliasNameToCodeValue[key].isNotEmpty()
+                                       ? aliasNameToCodeValue[key]
+                                       : (key.containsOnly ("0123456789") ? key : String());
+    String eventName;
+    String eventValue;
+    const bool hasEventName = tryGetFieldValueCaseInsensitive (event, "name", eventName);
+    const bool hasEventValue = tryGetFieldValueCaseInsensitive (event, "value", eventValue);
+    const bool codeMatches = resolvedCodeValue.isNotEmpty() && hasEventName && normalize (eventName) == resolvedCodeValue;
 
     if (rule.codeType == CodeType::time)
     {
-        if (rule.op == Operator::equals && rule.expectedValue.isNotEmpty())
-            matched = normalize (foundValue) == normalize (rule.expectedValue);
-        else
-            matched = keyPresent || foundValue.isNotEmpty();
+        matched = false;
 
-        if (! matched)
+        if (codeMatches)
         {
-            const String normalizedExpected = normalize (rule.expectedValue.isNotEmpty() ? rule.expectedValue : rule.conditionName);
-            const String normalizedRaw = normalize (event.raw);
+            if (rule.expectedValue.isEmpty())
+            {
+                matched = true;
+            }
+            else if (hasEventValue)
+            {
+                const String normalizedFound = normalize (eventValue);
+                const String normalizedExpected = normalize (rule.expectedValue);
 
-            if (normalizedExpected.isNotEmpty())
-                matched = normalizedRaw.contains (normalizedExpected);
+                switch (rule.op)
+                {
+                    case Operator::equals:
+                        matched = normalizedFound == normalizedExpected;
+                        break;
+                    case Operator::notEquals:
+                        matched = normalizedFound != normalizedExpected;
+                        break;
+                    case Operator::contains:
+                        matched = normalizedFound.contains (normalizedExpected);
+                        break;
+                    case Operator::greaterThan:
+                        matched = eventValue.getDoubleValue() > rule.expectedValue.getDoubleValue();
+                        break;
+                    case Operator::lessThan:
+                        matched = eventValue.getDoubleValue() < rule.expectedValue.getDoubleValue();
+                        break;
+                    default:
+                        matched = true;
+                        break;
+                }
+            }
         }
 
         return true;
     }
 
-    if (foundValue.isEmpty())
+    if (! codeMatches)
+        return true;
+
+    if (rule.expectedValue.isEmpty())
     {
-        if (rule.op == Operator::exists && keyPresent)
-        {
-            matched = true;
-            return true;
-        }
-
-        if (key == "name" || key == "value")
-        {
-            const String normalizedExpected = normalize (rule.expectedValue.isNotEmpty() ? rule.expectedValue : rule.conditionName);
-            const String normalizedRaw = normalize (event.raw);
-            matched = normalizedExpected.isNotEmpty() && normalizedRaw.contains (normalizedExpected);
-        }
-        else
-        {
-            matched = false;
-        }
-
+        matched = true;
         return true;
     }
 
-    const String normalizedFound = normalize (foundValue);
+    if (! hasEventValue)
+        return true;
+
+    const String normalizedFound = normalize (eventValue);
     const String normalizedExpected = normalize (rule.expectedValue);
 
     switch (rule.op)
@@ -839,10 +807,10 @@ bool PyramidRuleEngine::evaluateAgainstEvent (const Rule& rule, const ParsedEven
             matched = normalizedFound.contains (normalizedExpected);
             break;
         case Operator::greaterThan:
-            matched = foundValue.getDoubleValue() > rule.expectedValue.getDoubleValue();
+                        matched = eventValue.getDoubleValue() > rule.expectedValue.getDoubleValue();
             break;
         case Operator::lessThan:
-            matched = foundValue.getDoubleValue() < rule.expectedValue.getDoubleValue();
+                        matched = eventValue.getDoubleValue() < rule.expectedValue.getDoubleValue();
             break;
         default:
             matched = false;

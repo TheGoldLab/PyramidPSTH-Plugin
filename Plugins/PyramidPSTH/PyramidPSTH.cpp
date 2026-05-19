@@ -409,6 +409,33 @@ void PyramidPSTH::handleTTLEvent (TTLEventPtr event)
         }
     }
 
+    auto evaluateConditionByWindow = [&] (const String& conditionName, bool& matchedOut, String& errorOut)
+    {
+        matchedOut = false;
+        errorOut.clear();
+
+        if (useAcqClockTiming)
+        {
+            return ruleEngine.evaluateConditionInWindow (conditionName,
+                                                         activeTrialStartSequence,
+                                                         ruleEngine.getLatestParsedSequence(),
+                                                         activeTrialStartSampleNumber,
+                                                         trialEndSampleNumber,
+                                                         preTrialBufferSamples,
+                                                         matchedOut,
+                                                         errorOut);
+        }
+
+        return ruleEngine.evaluateConditionInWindow (conditionName,
+                                                     activeTrialStartSequence,
+                                                     ruleEngine.getLatestParsedSequence(),
+                                                     activeTrialStartSystemTimeMs,
+                                                     windowEndSystemTimeMs,
+                                                     configuredPreTrialBufferMs,
+                                                     matchedOut,
+                                                     errorOut);
+    };
+
     for (const auto& conditionName : conditionNames)
     {
         bool matched = false;
@@ -417,28 +444,7 @@ void PyramidPSTH::handleTTLEvent (TTLEventPtr event)
 
         try
         {
-            if (useAcqClockTiming)
-            {
-                ok = ruleEngine.evaluateConditionInWindow (conditionName,
-                                                           activeTrialStartSequence,
-                                                           ruleEngine.getLatestParsedSequence(),
-                                                           activeTrialStartSampleNumber,
-                                                           trialEndSampleNumber,
-                                                           preTrialBufferSamples,
-                                                           matched,
-                                                           errorMessage);
-            }
-            else
-            {
-                ok = ruleEngine.evaluateConditionInWindow (conditionName,
-                                                           activeTrialStartSequence,
-                                                           ruleEngine.getLatestParsedSequence(),
-                                                           activeTrialStartSystemTimeMs,
-                                                           windowEndSystemTimeMs,
-                                                           configuredPreTrialBufferMs,
-                                                           matched,
-                                                           errorMessage);
-            }
+            ok = evaluateConditionByWindow (conditionName, matched, errorMessage);
         }
         catch (...)
         {
@@ -448,6 +454,26 @@ void PyramidPSTH::handleTTLEvent (TTLEventPtr event)
 
         if (! ok || ! matched)
             continue;
+
+        const String conditionSpecificFilterName = "__manual_filter__::" + conditionName;
+        if (ruleEngine.getRuleCountForCondition (conditionSpecificFilterName) > 0)
+        {
+            bool filterMatched = false;
+            String filterError;
+            bool filterOk = true;
+
+            try
+            {
+                filterOk = evaluateConditionByWindow (conditionSpecificFilterName, filterMatched, filterError);
+            }
+            catch (...)
+            {
+                filterOk = false;
+            }
+
+            if (! filterOk || ! filterMatched)
+                continue;
+        }
 
         int64 resolvedAlignSample = -1;
         double resolvedAlignTimestampSeconds = -1.0;
@@ -889,7 +915,16 @@ Array<String> PyramidPSTH::getAvailableConditionNames() const
 
 Array<String> PyramidPSTH::getRuleConditionNames() const
 {
-    return ruleEngine.getConditionNames();
+    auto names = ruleEngine.getConditionNames();
+    Array<String> visibleNames;
+
+    for (const auto& name : names)
+    {
+        if (! name.startsWithIgnoreCase ("__manual_filter__::"))
+            visibleNames.add (name);
+    }
+
+    return visibleNames;
 }
 
 void PyramidPSTH::setAlignmentMode (AlignmentMode mode)

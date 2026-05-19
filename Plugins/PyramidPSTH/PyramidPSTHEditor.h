@@ -17,6 +17,8 @@ public:
         String conditionName;
         String codeKey;
         String expectedValue;
+        String filterCodeKey;
+        String filterExpectedValue;
     };
 
     ConfigureDialog (Array<UserCondition>& conditions, 
@@ -75,6 +77,8 @@ private:
         String conditionName;
         String codeKey;
         String expectedValue;
+        String filterCodeKey;
+        String filterExpectedValue;
     };
 
     void openConfigureDialog();
@@ -91,9 +95,6 @@ private:
     std::unique_ptr<Label> debugLabel;
     std::unique_ptr<TextEditor> statusBox;
     Array<UserCondition> userConditions;
-    bool filterEnabled = false;
-    String filterCodeKey = "name";
-    String filterExpectedValue;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PyramidPSTHEditor);
 };

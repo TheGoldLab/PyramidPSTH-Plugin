@@ -4,6 +4,14 @@
 
 #include <vector>
 
+namespace
+{
+String buildManualFilterConditionName (const String& conditionName)
+{
+    return "__manual_filter__::" + conditionName.trim();
+}
+}
+
 class PyramidPSTHVisualizer : public Visualizer,
                               public ComboBox::Listener,
                               public Button::Listener,
@@ -855,9 +863,6 @@ void PyramidPSTHEditor::buttonClicked (Button* button)
     else if (button == clearRulesButton.get())
     {
         userConditions.clearQuick();
-        filterEnabled = false;
-        filterCodeKey = "name";
-        filterExpectedValue.clear();
         processor->clearRules();
         statusBox->setText ("Rules/conditions cleared.", dontSendNotification);
     }
@@ -881,9 +886,6 @@ void PyramidPSTHEditor::timerCallback()
     String rulesText = processor->hasRulesLoaded() ? "Rules loaded" : "No rules loaded";
 
     rulesText += " | conditions=" + String (userConditions.size());
-
-    if (filterEnabled)
-        rulesText += " | filter=" + filterCodeKey + "=" + filterExpectedValue;
 
     if (processor->getAlignmentMode() == PyramidPSTH::AlignmentMode::eventCode)
     {
@@ -958,13 +960,12 @@ void PyramidPSTHEditor::openConfigureDialog()
 
     selectWindow.addButton ("Add New Condition", 1);
     selectWindow.addButton ("Edit Selected", 2);
-    selectWindow.addButton ("Set Filter", 3);
-    selectWindow.addButton ("Done", 4);
+    selectWindow.addButton ("Done", 3);
 
     const int selectResult = selectWindow.runModalLoop();
 
     String selectedConditionName;
-    if (selectResult == 2 && !existingConditionNames.isEmpty())
+    if (selectResult == 2 && ! existingConditionNames.isEmpty())
     {
         if (auto* comboBox = selectWindow.getComboBoxComponent ("condition_select"))
         {
@@ -973,14 +974,16 @@ void PyramidPSTHEditor::openConfigureDialog()
     }
 
     // STEP 2: Edit condition dialog (if add or edit selected)
-    if (selectResult == 1 || (selectResult == 2 && !selectedConditionName.isEmpty()))
+    if (selectResult == 1 || (selectResult == 2 && ! selectedConditionName.isEmpty()))
     {
         String editName = selectedConditionName;
         String editCodeKey = "name";
         String editValue;
+        String editFilterCodeKey;
+        String editFilterValue;
 
         // If editing, load current values
-        if (!selectedConditionName.isEmpty())
+        if (! selectedConditionName.isEmpty())
         {
             for (const auto& condition : userConditions)
             {
@@ -988,6 +991,8 @@ void PyramidPSTHEditor::openConfigureDialog()
                 {
                     editCodeKey = condition.codeKey;
                     editValue = condition.expectedValue;
+                    editFilterCodeKey = condition.filterCodeKey;
+                    editFilterValue = condition.filterExpectedValue;
                     break;
                 }
             }
@@ -1000,6 +1005,8 @@ void PyramidPSTHEditor::openConfigureDialog()
         editWindow.addTextEditor ("condition_name", editName, "Condition Name");
         editWindow.addTextEditor ("code_key", editCodeKey, "Event Code Key (e.g., trial_id, name)");
         editWindow.addTextEditor ("expected_value", editValue, "Expected Value (leave empty to match key existence)");
+        editWindow.addTextEditor ("filter_code_key", editFilterCodeKey, "Filter Event Code Key (optional, condition-specific)");
+        editWindow.addTextEditor ("filter_value", editFilterValue, "Filter Expected Value (optional; empty means key exists)");
 
         editWindow.addButton ("Save", 1);
         if (selectResult == 2)
@@ -1013,11 +1020,13 @@ void PyramidPSTHEditor::openConfigureDialog()
             const String newName = editWindow.getTextEditorContents ("condition_name").trim();
             const String newCode = editWindow.getTextEditorContents ("code_key").trim();
             const String newValue = editWindow.getTextEditorContents ("expected_value").trim();
+            const String newFilterCode = editWindow.getTextEditorContents ("filter_code_key").trim();
+            const String newFilterValue = editWindow.getTextEditorContents ("filter_value").trim();
 
             if (newName.isNotEmpty() && newCode.isNotEmpty())
             {
                 // Remove old condition if editing
-                if (!selectedConditionName.isEmpty())
+                if (! selectedConditionName.isEmpty())
                 {
                     for (int i = 0; i < userConditions.size(); ++i)
                     {
@@ -1030,7 +1039,7 @@ void PyramidPSTHEditor::openConfigureDialog()
                 }
 
                 // Add updated condition
-                userConditions.add ({newName, newCode, newValue});
+                userConditions.add ({newName, newCode, newValue, newFilterCode, newFilterValue});
                 preferredCondition = newName;
                 applyManualRulesToProcessor (preferredCondition);
             }
@@ -1047,38 +1056,6 @@ void PyramidPSTHEditor::openConfigureDialog()
                 }
             }
             applyManualRulesToProcessor (String());
-        }
-    }
-
-    // STEP 3: Filter dialog (if requested)
-    if (selectResult == 3)
-    {
-        AlertWindow filterWindow ("Filter Settings",
-                                "Optionally gate all trials with a filter condition:",
-                                AlertWindow::NoIcon);
-
-        filterWindow.addTextEditor ("filter_code_key", filterCodeKey, "Filter Event Code (optional)");
-        filterWindow.addTextEditor ("filter_value", filterExpectedValue, "Filter Value (optional)");
-
-        filterWindow.addButton ("Apply Filter", 1);
-        filterWindow.addButton ("Clear Filter", 2);
-        filterWindow.addButton ("Cancel", 3);
-
-        const int filterResult = filterWindow.runModalLoop();
-
-        if (filterResult == 1)
-        {
-            filterCodeKey = filterWindow.getTextEditorContents ("filter_code_key").trim();
-            filterExpectedValue = filterWindow.getTextEditorContents ("filter_value").trim();
-            filterEnabled = filterCodeKey.isNotEmpty() && filterExpectedValue.isNotEmpty();
-            applyManualRulesToProcessor (preferredCondition);
-        }
-        else if (filterResult == 2)
-        {
-            filterCodeKey = "name";
-            filterExpectedValue.clear();
-            filterEnabled = false;
-            applyManualRulesToProcessor (preferredCondition);
         }
     }
 }
@@ -1173,6 +1150,8 @@ void PyramidPSTHEditor::applyManualRulesToProcessor (const String& preferredCond
         const String conditionName = condition.conditionName.trim();
         const String codeKey = condition.codeKey.trim();
         const String expectedValue = condition.expectedValue.trim();
+        const String filterCodeKey = condition.filterCodeKey.trim();
+        const String filterExpectedValue = condition.filterExpectedValue.trim();
 
         if (conditionName.isEmpty() || codeKey.isEmpty())
             continue;
@@ -1187,34 +1166,25 @@ void PyramidPSTHEditor::applyManualRulesToProcessor (const String& preferredCond
         rule.lookbackMs = 1500;
         rules.add (rule);
 
+        if (filterCodeKey.isNotEmpty())
+        {
+            PyramidRuleEngine::Rule filterRule;
+            filterRule.conditionName = buildManualFilterConditionName (conditionName);
+            filterRule.codeKey = filterCodeKey;
+            filterRule.codeType = PyramidRuleEngine::CodeType::value;
+            filterRule.op = filterExpectedValue.isEmpty() ? PyramidRuleEngine::Operator::exists : PyramidRuleEngine::Operator::equals;
+            filterRule.expectedValue = filterExpectedValue;
+            filterRule.lookbackMs = 1500;
+            rules.add (filterRule);
+        }
+
         if (! conditionNames.contains (conditionName))
             conditionNames.add (conditionName);
     }
 
-    String filterConditionName;
-    if (filterEnabled)
-    {
-        const String key = filterCodeKey.trim();
-        const String value = filterExpectedValue.trim();
-
-        if (key.isNotEmpty() && value.isNotEmpty())
-        {
-            filterConditionName = "__manual_filter__";
-
-            PyramidRuleEngine::Rule filterRule;
-            filterRule.conditionName = filterConditionName;
-            filterRule.codeKey = key;
-            filterRule.codeType = PyramidRuleEngine::CodeType::value;
-            filterRule.op = PyramidRuleEngine::Operator::equals;
-            filterRule.expectedValue = value;
-            filterRule.lookbackMs = 1500;
-            rules.add (filterRule);
-        }
-    }
-
     processor->setManualConditionRules (rules);
     processor->setConfiguredConditionNames (conditionNames);
-    processor->setTrialFilterState (filterConditionName.isNotEmpty(), filterConditionName);
+    processor->setTrialFilterState (false, String());
 
     String selected = preferredCondition.trim();
 
