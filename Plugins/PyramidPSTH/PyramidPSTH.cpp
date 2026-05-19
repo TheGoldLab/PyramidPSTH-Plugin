@@ -329,40 +329,71 @@ void PyramidPSTH::handleTTLEvent (TTLEventPtr event)
         if (alignmentMode == AlignmentMode::eventCode)
         {
             const String alignCondition = alignmentEventConditionName.trim();
-            if (alignCondition.isEmpty())
-                return false;
-
-            PyramidRuleEngine::ParsedEvent matchedEvent;
-            const bool foundAlignEvent = useAcqClockTiming
-                                            ? ruleEngine.findNearestMatchingEventInWindow (alignCondition,
-                                                                                           activeTrialStartSampleNumber,
-                                                                                           activeTrialStartSequence,
-                                                                                           ruleEngine.getLatestParsedSequence(),
-                                                                                           activeTrialStartSampleNumber,
-                                                                                           trialEndSampleNumber,
-                                                                                           preTrialBufferSamples,
-                                                                                           matchedEvent)
-                                            : ruleEngine.findNearestMatchingEventInWindow (alignCondition,
-                                                                                           activeTrialStartSystemTimeMs,
-                                                                                           activeTrialStartSequence,
-                                                                                           ruleEngine.getLatestParsedSequence(),
-                                                                                           activeTrialStartSystemTimeMs,
-                                                                                           windowEndSystemTimeMs,
-                                                                                           configuredPreTrialBufferMs,
-                                                                                           matchedEvent);
-            if (! foundAlignEvent)
-            {
-                alignEventNotFoundInWindow++;
+            if (alignCondition.isEmpty()) {
+                lastAlignEventDebug = "Align condition is empty.";
                 return false;
             }
+            juce::StringArray debugLines;
+            debugLines.add("Align search for: " + alignCondition);
+            debugLines.add("Window: seq " + String(activeTrialStartSequence) + "-" + String(ruleEngine.getLatestParsedSequence()) + ", sample " + String(activeTrialStartSampleNumber) + "-" + String(trialEndSampleNumber));
+            Array<PyramidRuleEngine::ParsedEvent> candidateEvents;
+            for (const auto& event : ruleEngine.getRecentEvents())
+            {
+                if (useAcqClockTiming) {
+                    if (!ruleEngine.eventInWindowPublic(event, activeTrialStartSequence, ruleEngine.getLatestParsedSequence(), activeTrialStartSampleNumber, trialEndSampleNumber, preTrialBufferSamples))
+                        continue;
+                } else {
+                    if (!ruleEngine.eventInWindowPublic(event, activeTrialStartSequence, ruleEngine.getLatestParsedSequence(), activeTrialStartSystemTimeMs, windowEndSystemTimeMs, configuredPreTrialBufferMs))
+                        continue;
+                }
+                candidateEvents.add(event);
+            }
+            if (candidateEvents.isEmpty()) {
+                debugLines.add("No events in window.");
+            } else {
+                int idx = 0;
+                for (const auto& event : candidateEvents) {
+                    String name, value;
+                    ruleEngine.tryGetFieldValueCaseInsensitivePublic(event, "name", name);
+                    ruleEngine.tryGetFieldValueCaseInsensitivePublic(event, "value", value);
+                    debugLines.add("Event[" + String(idx++) + "]: name='" + name + "', value='" + value + "', sample=" + String(event.sampleNumber) + ", sysMs=" + String(event.systemTimeMs));
+                }
+            }
+            bool matched = false;
+            int bestIdx = -1;
+            int64 bestSeq = -1;
+            PyramidRuleEngine::ParsedEvent matchedEvent;
+            for (int i = 0; i < candidateEvents.size(); ++i) {
+                const auto& event = candidateEvents.getReference(i);
+                bool ruleMatched = false;
+                for (const auto& rule : ruleEngine.getRules()) {
+                    if (rule.conditionName.equalsIgnoreCase(alignCondition)) {
+                        if (ruleEngine.evaluateAgainstEventPublic(rule, event, ruleMatched) && ruleMatched) {
+                            matched = true;
+                            if (event.sequenceNumber > bestSeq) {
+                                bestSeq = event.sequenceNumber;
+                                matchedEvent = event;
+                                bestIdx = i;
+                            }
+                        }
+                    }
+                }
+            }
+            if (!matched) {
+                debugLines.add("No candidate event matched all rules for '" + alignCondition + "'.");
+                lastAlignEventDebug = debugLines.joinIntoString(" | ");
+                alignEventNotFoundInWindow++;
+                return false;
+            } else {
+                debugLines.add("Matched event at idx=" + String(bestIdx) + ", sample=" + String(matchedEvent.sampleNumber) + ", sysMs=" + String(matchedEvent.systemTimeMs));
+            }
+            lastAlignEventDebug = debugLines.joinIntoString(" | ");
             resolvedAlignSystemTimeMs = matchedEvent.systemTimeMs;
             lastAlignEventSampleNumber = matchedEvent.sampleNumber;
-
             const int64 minTrialSample = activeTrialStartSampleNumber - jmax<int64> (0, preTrialBufferSamples);
             const bool canUseTrialSampleDomain = useAcqClockTiming
                                                 && matchedEvent.sampleNumber >= minTrialSample
                                                 && matchedEvent.sampleNumber <= trialEndSampleNumber;
-
             if (canUseTrialSampleDomain)
             {
                 resolvedAlignSample = matchedEvent.sampleNumber;
@@ -371,9 +402,10 @@ void PyramidPSTH::handleTTLEvent (TTLEventPtr event)
             else
             {
                 alignSampleDomainRejects++;
+                debugLines.add("Matched event sample out of trial sample domain.");
+                lastAlignEventDebug = debugLines.joinIntoString(" | ");
                 return false;
             }
-
             ignoreUnused (candidateConditionName);
             return resolvedAlignSample >= 0 || resolvedAlignTimestampSeconds >= 0.0;
         }
@@ -813,17 +845,19 @@ String PyramidPSTH::getStatusText() const
                                                     ? lastTrialStartAcqTimeSeconds.load() - (double (jmax (0, preTrialBufferMs)) / 1000.0)
                                                     : -1.0;
 
+    auto showNA = [] (auto v) -> String { return (v < 0) ? String("N/A") : String(v); };
+    auto showNAf = [] (auto v) -> String { return (v < 0.0) ? String("N/A") : String(v, 6); };
     return String()
-        + "wall_clk_trial_start_ms=" + formatTimestampMs (lastTrialStartSystemTimeMs.load())
-        + " wall_clk_trial_end_ms=" + formatTimestampMs (lastTrialEndSystemTimeMs.load())
-        + " wall_clk_prebuf_start_ms=" + formatTimestampMs (lastTrialStartWithPrebufferSystemTimeMs.load())
-        + " wall_clk_align_ms=" + formatTimestampMs (lastTrialAlignSystemTimeMs.load())
-        + " wall_clk_condition_ms=" + formatTimestampMs (lastConditionEventSystemTimeMs.load())
-        + " acq_clk_trial_start_s=" + formatSeconds (lastTrialStartAcqTimeSeconds.load())
-        + " acq_clk_trial_end_s=" + formatSeconds (lastTrialEndAcqTimeSeconds.load())
-        + " acq_clk_prebuf_start_s=" + formatSeconds (projectedPrebufferStartSeconds)
-        + " acq_clk_align_s=" + formatSeconds (lastTrialAlignAcqTimeSeconds.load())
-        + " acq_clk_condition_s=" + formatSeconds (lastConditionEventAcqTimeSeconds.load())
+        + "wall_clk_trial_start_ms=" + showNA(lastTrialStartSystemTimeMs.load())
+        + " wall_clk_trial_end_ms=" + showNA(lastTrialEndSystemTimeMs.load())
+        + " wall_clk_prebuf_start_ms=" + showNA(lastTrialStartWithPrebufferSystemTimeMs.load())
+        + " wall_clk_align_ms=" + showNA(lastTrialAlignSystemTimeMs.load())
+        + " wall_clk_condition_ms=" + showNA(lastConditionEventSystemTimeMs.load())
+        + " acq_clk_trial_start_s=" + showNAf(lastTrialStartAcqTimeSeconds.load())
+        + " acq_clk_trial_end_s=" + showNAf(lastTrialEndAcqTimeSeconds.load())
+        + " acq_clk_prebuf_start_s=" + showNAf(projectedPrebufferStartSeconds)
+        + " acq_clk_align_s=" + showNAf(lastTrialAlignAcqTimeSeconds.load())
+        + " acq_clk_condition_s=" + showNAf(lastConditionEventAcqTimeSeconds.load())
         + " conditions=" + String (conditionCount)
         + " rules=" + String (health.rulesLoaded)
         + " prebuf_ms=" + String (int (getParameter ("pre_trial_buffer_ms")->getValue()))
@@ -845,13 +879,14 @@ String PyramidPSTH::getStatusText() const
         + " align_event=" + (alignmentEventConditionName.isEmpty() ? String ("none") : alignmentEventConditionName)
         + " dbg_align_rule_rows=" + String (alignRuleRows)
         + " align_synced_streams=" + String (assumeSynchronizedStreamsForEventAlignment ? "yes" : "no")
-        + " dbg_text_sample=" + String (lastTextEventSampleNumber.load())
-        + " dbg_trial_start_sample=" + String (lastTrialStartSampleNumberDebug.load())
-        + " dbg_trial_end_sample=" + String (lastTrialEndSampleNumberDebug.load())
-        + " dbg_align_event_sample=" + String (lastAlignEventSampleNumber.load())
-        + " dbg_condition_event_sample=" + String (lastConditionEventSampleNumber.load())
+        + " dbg_text_sample=" + showNA(lastTextEventSampleNumber.load())
+        + " dbg_trial_start_sample=" + showNA(lastTrialStartSampleNumberDebug.load())
+        + " dbg_trial_end_sample=" + showNA(lastTrialEndSampleNumberDebug.load())
+        + " dbg_align_event_sample=" + showNA(lastAlignEventSampleNumber.load())
+        + " dbg_condition_event_sample=" + showNA(lastConditionEventSampleNumber.load())
         + " dbg_align_sample_domain_rejects=" + String (alignSampleDomainRejects.load())
-        + " dbg_align_event_not_found=" + String (alignEventNotFoundInWindow.load());
+        + " dbg_align_event_not_found=" + String (alignEventNotFoundInWindow.load())
+        + " dbg_align_event_debug=" + (lastAlignEventDebug.isNotEmpty() ? lastAlignEventDebug : "none");
 }
 
 bool PyramidPSTH::hasRulesLoaded() const

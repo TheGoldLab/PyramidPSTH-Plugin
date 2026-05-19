@@ -110,6 +110,8 @@ public:
     Array<String> getConditionNames() const;
     int getRuleCountForCondition (const String& conditionName) const;
     const Array<Rule>& getManualRules() const { return manualRules; }
+    const Array<ParsedEvent>& getRecentEvents() const { return recentEvents; }
+    const Array<Rule>& getRules() const { return rules; }
     Health getHealth() const;
     int64 getLatestParsedSequence() const;
 
@@ -173,6 +175,22 @@ private:
 
     StringPairArray aliasNameToCodeValue;
     StringPairArray aliasCodeValueToName;
+
+public:
+    bool eventInWindowPublic(const ParsedEvent& event,
+                             int64 startSequence,
+                             int64 endSequence,
+                             int64 startSampleNumber,
+                             int64 endSampleNumber,
+                             int64 preTrialBufferSamples) const { return eventInWindow(event, startSequence, endSequence, startSampleNumber, endSampleNumber, preTrialBufferSamples); }
+    bool eventInWindowPublic(const ParsedEvent& event,
+                             int64 startSequence,
+                             int64 endSequence,
+                             int64 startSystemTimeMs,
+                             int64 endSystemTimeMs,
+                             int preTrialBufferMs) const { return eventInWindow(event, startSequence, endSequence, startSystemTimeMs, endSystemTimeMs, preTrialBufferMs); }
+    bool tryGetFieldValueCaseInsensitivePublic(const ParsedEvent& event, const String& key, String& value) const { return tryGetFieldValueCaseInsensitive(event, key, value); }
+    bool evaluateAgainstEventPublic(const Rule& rule, const ParsedEvent& event, bool& matched) const { return evaluateAgainstEvent(rule, event, matched); }
 };
 
 #endif
