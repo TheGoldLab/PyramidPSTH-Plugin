@@ -47,33 +47,7 @@ Common plugin folders:
 
 - `C:/Users/<username>/AppData/Local/Open Ephys/plugins-api10`
 - `C:/ProgramData/OpenEphys/plugins-api8`
-
-For a student-friendly walkthrough, see `STUDENT_INSTALL.md`.
-
-## Screenshots
-
-> The files below are currently placeholders and can be replaced with real screenshots using the same filenames.
-
-
-
-### 2) Electrode and display window settings
-
-
-
-### 3) Trial start + alignment TTL selection
-
-
-
-### 4) Rules, conditions, and optional filters
-
-![Rules and conditions](docs/screenshots/04-rules-and-conditions.svg)
-
-### 5) Event-code alignment with synced streams
-
-
-
-
-
+  
 ## How to Use
 
 1) Signal chain setup
@@ -93,7 +67,7 @@ Add `Pyramid PSTH` to your processing chain. You must have UDPEvents in your sig
 If you intend to align by event code (not TTL), click the align-event-code control, select an alignment condition, and ensure the synced-stream assumption is set appropriately (`assume synced`) before testing alignment.
 
 ### Add conditions and optional filters
-
+![Rules and conditions](docs/screenshots/04-rules-and-conditions.svg)
 1. You must have loaded a set of CSV rules already
 2. For each condition, specify an event code key (e.g., "dot_dir") and optional expected value (e.g., "135").
 3. Add optional filter values if you want per-condition trial filtering. For example, if I only wanted completed trials I could set the filter code to be "targ_acq" which indicates the monkey selected a target and completed the trial. You could also be more specific by using a filter code to be "dot_coh" (coherence) and add an expected value to filter trials with the desired coherence level.
